@@ -34,10 +34,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      # setup-uv уже создал .venv и выставил VIRTUAL_ENV — свой `uv venv`
+      # здесь только спотыкается об существующий каталог.
       - name: Установить зависимости
-        run: |
-          uv venv --python 3.12
-          uv pip install -e '.[dev]'
+        run: uv pip install -e '.[dev]'
 
       - name: Линт
         run: |

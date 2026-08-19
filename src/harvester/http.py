@@ -10,8 +10,8 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import date, datetime
 
 import httpx
 
@@ -38,6 +38,11 @@ class CourtOnCooldown(RuntimeError):
     """Суд просил отступить, и срок паузы ещё не вышел."""
 
 
+def _today() -> date:
+    """Сегодняшняя дата по местному времени — по ней катится дневной потолок."""
+    return datetime.now().date()
+
+
 def within_night_window(window: tuple[int, int], moment: datetime | None = None) -> bool:
     """Попадает ли момент в окно сбора [от, до) по часам.
 
@@ -55,6 +60,9 @@ class Response:
     url: str
     status_code: int
     content: bytes
+    #: Заголовки ответа. Нужны из-за `Retry-After` у 429: сервер сам
+    #: говорит, через сколько к нему можно, и гадать не надо.
+    headers: dict[str, str] = field(default_factory=dict)
 
     @property
     def text(self) -> str:
@@ -118,11 +126,33 @@ class CourtClient:
         self._client.close()
 
     def _throttle(self, host: str) -> None:
+        """Выдержать обе паузы: на этот суд и на платформу целиком.
+
+        Вторая появилась 20.08.2026. Дроссель на хост казался достаточным,
+        пока суды обходились по одному; десять параллельных потоков дают
+        по запросу в каждый суд за те же три секунды, то есть больше трёх
+        запросов в секунду на ГАС. Антибрутфорс считает их вместе и отвечает
+        429 — сразу семи судам.
+        """
         elapsed = time.monotonic() - self._last_request.get(host, 0.0)
         remaining = self.settings.min_delay_seconds - elapsed
         if remaining > 0:
             time.sleep(remaining)
         self._last_request[host] = time.monotonic()
+        self._throttle_globally()
+
+    def _throttle_globally(self) -> None:
+        """Пауза между любыми двумя запросами, чей бы суд ни был.
+
+        Замок общий на процесс: потоки судов ждут в нём по очереди,
+        и суммарный темп получается ровно настроечный.
+        """
+        with _GLOBAL_GATE:
+            elapsed = time.monotonic() - _LAST_REQUEST_ANY[0]
+            remaining = self.settings.global_min_delay_seconds - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
+            _LAST_REQUEST_ANY[0] = time.monotonic()
 
     def cooldown_left(self, host: str) -> float:
         """Сколько секунд ещё нельзя трогать этот суд."""
@@ -157,7 +187,7 @@ class CourtClient:
             raise OutsideCollectionWindow(
                 f"массовый обход разрешён только с {start}:00 до {end}:00"
             )
-        if self._requests_today.get(host, 0) >= self.settings.daily_request_cap:
+        if self._requests_today.get((host, _today()), 0) >= self.settings.daily_request_cap:
             raise DailyCapReached(
                 f"{host}: исчерпан дневной потолок ({self.settings.daily_request_cap})"
             )
@@ -166,7 +196,8 @@ class CourtClient:
         for attempt in range(1, self.settings.max_retries + 1):
             with host_lock(host):
                 self._throttle(host)
-                self._requests_today[host] = self._requests_today.get(host, 0) + 1
+                key = (host, _today())
+                self._requests_today[key] = self._requests_today.get(key, 0) + 1
                 try:
                     response = self._client.get(url)
                 except httpx.HTTPError as exc:
@@ -175,6 +206,16 @@ class CourtClient:
                     continue
 
                 log.info("GET %s → %d (%d байт)", url, response.status_code, len(response.content))
+                if response.status_code == 429:
+                    # Тот же антибрутфорс, что и «Информация временно
+                    # недоступна», только на уровне HTTP: nginx отдаёт
+                    # 162 байта «429 Too Many Requests». По тексту его
+                    # не опознать — придержание ищется по русской фразе
+                    # в вёрстке, — и без этой ветки окно падало с `unknown`,
+                    # а следующий запрос уходил через те же три секунды.
+                    # Значит и пауза та же, что у страницы придержания.
+                    self.back_off(host, _cooldown_after_429(response, self.settings), "HTTP 429")
+                    raise CourtOnCooldown(f"{host}: HTTP 429, отступаем")
                 if arm_back_off and _looks_throttled(response.content):
                     self.back_off(host, self.settings.cooldown_seconds, "суд придержал адрес")
                 if response.status_code >= 500:
@@ -240,7 +281,9 @@ class CourtClient:
 
     @property
     def requests_today(self) -> dict[str, int]:
-        return dict(self._requests_today)
+        """Сколько запросов сделано к каждому суду СЕГОДНЯ."""
+        today = _today()
+        return {host: n for (host, day), n in self._requests_today.items() if day == today}
 
 
 def _with_token(url: str, token) -> str:
@@ -253,11 +296,41 @@ def with_captcha_params(url: str, text: str, captchaid: str) -> str:
     return with_captcha(url, text, captchaid)
 
 
+def _cooldown_after_429(response: Response, settings: Settings) -> float:
+    """Сколько ждать после 429.
+
+    По умолчанию столько же, сколько после страницы «Информация временно
+    недоступна»: это один и тот же антибрутфорс, и делать вид, что HTTP-отказ
+    легче, оснований нет. Если сервер прислал `Retry-After` и просит дольше —
+    слушаем его; просит короче — всё равно ждём своё, отступать надо раньше,
+    чем суд попросит второй раз.
+
+    Форму `Retry-After` в виде даты не разбираем: суды присылают секунды,
+    а ошибиться в разборе даты дороже, чем подождать положенное.
+    """
+    raw = response.headers.get("retry-after") or response.headers.get("Retry-After")
+    try:
+        asked = float(raw) if raw is not None else 0.0
+    except ValueError:
+        asked = 0.0
+    return max(asked, settings.cooldown_seconds)
+
+
 #: Всё состояние по хосту — общее на процесс: клиенты создаются на каждую
 #: задачу, а суд один. Дроссель, счётчик и пауза обязаны его переживать.
 _COOLDOWNS: dict[str, float] = {}
+
+#: Момент последнего запроса к ГАС — к любому суду. Общий дроссель считает
+#: от него, и замок у него свой: он бережёт не суд, а платформу.
+_LAST_REQUEST_ANY: list[float] = [0.0]
+_GLOBAL_GATE = threading.Lock()
 _LAST_REQUEST: dict[str, float] = {}
-_REQUESTS_TODAY: dict[str, int] = {}
+#: Запросы за сутки, по паре (суд, дата). Дата в ключе не для порядка:
+#: пока обход запускался на ночь, процесс умирал каждое утро и счётчик
+#: обнулялся заодно. Круглосуточный процесс живёт сутками, и без даты
+#: потолок, взятый однажды, больше никогда бы не отпустил — все окна суда
+#: посыпались бы в `DailyCapReached`, сжигая попытки.
+_REQUESTS_TODAY: dict[tuple[str, date], int] = {}
 
 #: По замку на суд. Обход идёт в несколько потоков — по одному на суд, —
 #: но замок нужен и на случай, если два потока всё же сойдутся на одном

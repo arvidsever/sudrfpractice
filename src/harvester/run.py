@@ -23,7 +23,7 @@ from .directories import cartoteka as find_cartoteka
 from .directories import court as find_court
 from .directories import courts
 from .harvest import harvest_listing
-from .http import _COOLDOWNS, CourtOnCooldown, OutsideCollectionWindow
+from .http import _COOLDOWNS, CourtOnCooldown, DailyCapReached, OutsideCollectionWindow
 from .urls import DateAxis
 
 log = logging.getLogger("harvester.run")
@@ -103,6 +103,14 @@ def _work_one_court(
             task_queue.complete(engine, task, status="pending", refund=True)
             log.info("%s: %s — прогон останавливается до следующей ночи", domain, exc)
             stop.set()
+            return
+        except DailyCapReached as exc:
+            # Потолок на сегодня выбран. Окно не виновато и не пробовано:
+            # возвращаем вместе с попыткой и уходим до завтра. Без этой
+            # ветки оно попало бы в общий `except` и легло бы как `failed`,
+            # а следом за ним и все остальные окна этого суда.
+            task_queue.complete(engine, task, status="pending", refund=True)
+            log.info("%s: %s — суд отложен до завтра", domain, exc)
             return
         except CourtOnCooldown as exc:
             # Не вина окна: суд просто попросил отступить. Возвращаем задание

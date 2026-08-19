@@ -52,16 +52,25 @@ class CardSweepResult:
     throttled: bool = False
 
 
-def pending_cards(connection, court_domain: str, limit: int | None = None):
+def pending_cards(
+    connection,
+    court_domain: str,
+    limit: int | None = None,
+    cartoteka_id: str | None = None,
+):
     """Дела этого суда, чью карточку ещё не открывали."""
+    conditions = [
+        case.c.court_domain == court_domain,
+        case.c.card_fetched_at.is_(None),
+        case.c.case_id.is_not(None),
+        case.c.case_uid.is_not(None),
+    ]
+    if cartoteka_id is not None:
+        conditions.append(case.c.cartoteka_id == cartoteka_id)
+
     query = (
         select(case.c.id, case.c.case_id, case.c.case_uid, case.c.cartoteka_id, case.c.case_number)
-        .where(
-            case.c.court_domain == court_domain,
-            case.c.card_fetched_at.is_(None),
-            case.c.case_id.is_not(None),
-            case.c.case_uid.is_not(None),
-        )
+        .where(*conditions)
         .order_by(case.c.id)
     )
     if limit is not None:
@@ -75,6 +84,7 @@ def collect_cards(
     settings: Settings | None = None,
     limit: int | None = None,
     bulk: bool = True,
+    cartoteka_id: str | None = None,
 ) -> CardSweepResult:
     settings = settings or default_settings
     raw_store = RawStore(settings.raw_root)
@@ -82,7 +92,7 @@ def collect_cards(
     court = find_court(court_domain)
 
     with engine.connect() as connection:
-        targets = pending_cards(connection, court_domain, limit)
+        targets = pending_cards(connection, court_domain, limit, cartoteka_id)
 
     cards = texts = participants = without_text = failed = 0
     throttled = False
@@ -147,7 +157,7 @@ def collect_cards(
                 without_text += 1
 
     with engine.connect() as connection:
-        remaining = len(pending_cards(connection, court_domain))
+        remaining = len(pending_cards(connection, court_domain, cartoteka_id=cartoteka_id))
     engine.dispose()
 
     return CardSweepResult(

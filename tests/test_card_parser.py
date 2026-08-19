@@ -68,6 +68,21 @@ def test_criminal_card_has_appeals(card_criminal: str) -> None:
     assert all(a.filed_at for a in appeals)
 
 
+def test_kas_card_looks_civil_but_roles_differ(card_kas: str) -> None:
+    """У КАС разделы те же, что у гражданской, — но роли административные.
+    Это и есть причина не хардкодить роли, а брать их из колонки."""
+    card = parse_card(card_kas)
+
+    roles = {p.role for p in card.participants}
+    assert "АДМИНИСТРАТИВНЫЙ ИСТЕЦ" in roles
+    assert "АДМИНИСТРАТИВНЫЙ ОТВЕТЧИК" in roles
+    assert all(p.articles is None for p in card.participants)
+
+    assert card.lower_court is not None
+    assert card.lower_court.case_number == "2а-1281/2025"
+    assert card.hearings and card.appeals
+
+
 def test_koap_card_has_articles_in_its_own_table(card_koap: str) -> None:
     """У КоАП таблица называется «СТОРОНЫ ПО ДЕЛУ», и статья лежит в ней же."""
     card = parse_card(card_koap)
@@ -88,11 +103,11 @@ def test_missing_sections_are_not_a_failure(card_koap: str) -> None:
 
 
 def test_every_card_carries_its_act_text(
-    case_card: str, card_criminal: str, card_koap: str
+    case_card: str, card_criminal: str, card_kas: str, card_koap: str
 ) -> None:
     """Ради этого свод и переехал с `name_op=doc` на карточку: тот же один
     запрос, но сверх текста — участники, статьи и движение."""
-    for html in (case_card, card_criminal, card_koap):
+    for html in (case_card, card_criminal, card_kas, card_koap):
         card = parse_card(html)
         assert card.has_act_text
         assert len(card.act_texts[1]) > 1000

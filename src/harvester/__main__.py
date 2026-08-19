@@ -91,7 +91,8 @@ def main(argv: list[str] | None = None) -> int:
 
     acts = sub.add_parser("cards", help="обойти карточки дел: тексты актов, участники, движение")
     acts.add_argument("--court", required=True, help="домен суда, напр. 5kas.sudrf.ru")
-    acts.add_argument("--limit", type=int, help="взять не больше N актов за прогон")
+    acts.add_argument("--cartoteka", help="ограничить картотекой: g3 | u3 | p3 | adm3")
+    acts.add_argument("--limit", type=int, help="взять не больше N карточек за прогон")
     acts.add_argument(
         "--pilot",
         action="store_true",
@@ -267,7 +268,9 @@ def main(argv: list[str] | None = None) -> int:
         from .cards import collect_cards
 
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-        result = collect_cards(args.court, limit=args.limit, bulk=not args.pilot)
+        result = collect_cards(
+            args.court, limit=args.limit, bulk=not args.pilot, cartoteka_id=args.cartoteka
+        )
         print(
             f"{result.court_domain}: карточек {result.cards} из {result.attempted}, "
             f"текстов {result.texts}, участников {result.participants}, "

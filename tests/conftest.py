@@ -59,6 +59,13 @@ def card_criminal() -> str:
 
 
 @pytest.fixture(scope="session")
+def card_kas() -> str:
+    """Карточка КАС: разделы как у гражданской, но роли свои —
+    «АДМИНИСТРАТИВНЫЙ ИСТЕЦ» и «АДМИНИСТРАТИВНЫЙ ОТВЕТЧИК»."""
+    return fixture("ksoyu_card_kas")
+
+
+@pytest.fixture(scope="session")
 def card_koap() -> str:
     """Карточка КоАП: «СТОРОНЫ ПО ДЕЛУ» со статьями, без слушаний и жалоб."""
     return fixture("ksoyu_card_koap")

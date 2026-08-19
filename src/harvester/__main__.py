@@ -51,6 +51,15 @@ def main(argv: list[str] | None = None) -> int:
         "Массовый обход идёт без этого флага и только ночью.",
     )
 
+    acts = sub.add_parser("acts", help="скачать тексты актов, у которых их ещё нет")
+    acts.add_argument("--court", required=True, help="домен суда, напр. 5kas.sudrf.ru")
+    acts.add_argument("--limit", type=int, help="взять не больше N актов за прогон")
+    acts.add_argument(
+        "--pilot",
+        action="store_true",
+        help="наблюдаемый прогон: без требования ночного окна",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "courts":
@@ -97,6 +106,22 @@ def main(argv: list[str] | None = None) -> int:
         if result.note:
             print(result.note)
         return 0 if result.status in ("complete", "pilot") else 1
+
+    if args.command == "acts":
+        import logging
+
+        from .acts import collect_act_texts
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        result = collect_act_texts(args.court, limit=args.limit, bulk=not args.pilot)
+        print(
+            f"{result.court_domain}: взято {result.attempted}, записано {result.stored}, "
+            f"пустых {result.empty}, ошибок {result.failed}, осталось {result.remaining}"
+        )
+        if result.throttled:
+            print("суд попросил перестать — продолжать после паузы")
+            return 1
+        return 0
 
     if args.command == "url":
         target = listing_url(

@@ -49,6 +49,8 @@ src/harvester/
   raw.py          слой сырых HTML — источник истины
   guards.py       классификация ответа: выдача / нет данных / капча / неизвестно
   parse/          разбор перечня и текста акта
+  harvest.py      обход окна: страницы, сверка со счётчиком, журнал
+  acts.py         сбор текстов актов по ссылкам из перечня
   db/             схема и наполнение справочников
 migrations/       alembic
 tests/fixtures/   шесть живых страниц
@@ -91,12 +93,17 @@ python -m harvester url --court 2kas.sudrf.ru --cartoteka g3 \
 pytest && ruff check
 ```
 
-Обход окна:
+Обход окна и сбор текстов:
 
 ```bash
-python -m harvester harvest --court 2kas.sudrf.ru --cartoteka g3 \
+python -m harvester harvest --court 5kas.sudrf.ru --cartoteka g3 \
     --axis publication --from 01.06.2026 --to 07.06.2026
+python -m harvester acts --court 5kas.sudrf.ru
 ```
+
+Полнота свода текстов измеряется базой, а не памятью о прогоне: берутся
+только те акты, у которых ещё нет `act_text`. Прерванный сбор продолжается
+сам, повторный запуск ничего не перекачивает.
 
 Без флагов обход идёт только в ночном окне. `--pilot N` снимает это
 требование и ограничивает обход N страницами — для наблюдаемого прогона,
@@ -106,7 +113,7 @@ python -m harvester harvest --court 2kas.sudrf.ru --cartoteka g3 \
 
 ## Порядок работ
 
-Разведка ✓ → каркас ✓ → перечень ✓ → тексты → индексы → API.
+Разведка ✓ → каркас ✓ → перечень ✓ → тексты ✓ → индексы → API.
 
 Раскатка судов: 2 КСОЮ (без капчи) → 3 КСОЮ (с капчей, боевая проверка
 модели) → остальные, включая `vkas.sudrf.ru`.

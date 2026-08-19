@@ -9,9 +9,8 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from sqlalchemy import create_engine, delete, func, select
+from sqlalchemy import create_engine, func, select
 
-from harvester.config import Settings
 from harvester.db.schema import act, case, harvest_run, raw_page
 from harvester.directories import cartoteka, court
 from harvester.harvest import harvest_listing
@@ -19,19 +18,6 @@ from harvester.http import Response
 from harvester.urls import DateAxis
 
 WINDOW = (date(2026, 6, 1), date(2026, 6, 7))
-
-
-@pytest.fixture
-def db_settings(tmp_path, test_database_url: str) -> Settings:
-    """Отдельная база: тесты чистят таблицы, и рабочие данные им не по зубам."""
-    settings = Settings(raw_root=tmp_path / "raw", database_url=test_database_url)
-    engine = create_engine(settings.database_url)
-
-    with engine.begin() as connection:
-        for table in (act, case, harvest_run, raw_page):
-            connection.execute(delete(table))
-    engine.dispose()
-    return settings
 
 
 @pytest.fixture
@@ -45,7 +31,7 @@ def offline_client(monkeypatch, listing_acts: str):
     monkeypatch.setattr("harvester.http.CourtClient.get", fake_get)
 
 
-def _harvest(settings: Settings, **kwargs):
+def _harvest(settings, **kwargs):
     return harvest_listing(
         court("2kas.sudrf.ru"),
         cartoteka("g3"),

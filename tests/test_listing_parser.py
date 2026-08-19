@@ -76,13 +76,13 @@ def test_parsing_a_non_listing_raises(listing_bad_new: str, listing_captcha_gate
             parse_listing(html, court_domain=DOMAIN, cartoteka_id="g3")
 
 
-def test_listing_from_foreign_ip_still_parses(listing_foreign_ip: str) -> None:
-    """С зарубежного адреса портал прячет колонку с актами.
+def test_listing_with_short_delo_id_still_parses(listing_appeal_delo_id: str) -> None:
+    """С коротким `delo_id` портал не наполняет колонку с актами.
 
     Разбор от этого не ломается: счётчик, строки и реквизиты те же.
-    Ловится это не парсером, а детектором `suspect_hidden_act_links`.
+    Ловится это не парсером, а детектором `suspect_wrong_delo_id`.
     """
-    page = parse_listing(listing_foreign_ip, court_domain=DOMAIN, cartoteka_id="g3")
+    page = parse_listing(listing_appeal_delo_id, court_domain=DOMAIN, cartoteka_id="g3")
 
     assert page.total == 530
     assert len(page.rows) == 25
@@ -95,17 +95,20 @@ def test_listing_from_foreign_ip_still_parses(listing_foreign_ip: str) -> None:
     assert first.case_uid == "3128af6a-aafd-43ab-a873-18c4f46b860e"
 
 
-def test_hidden_act_links_are_detected(listing_acts: str, listing_foreign_ip: str) -> None:
-    """Полная страница без единой ссылки под осью публикации — это признак
-    «плохого» адреса, а не отсутствия опубликованных актов."""
-    from harvester.guards import suspect_hidden_act_links
+def test_wrong_delo_id_is_detected(listing_acts: str, listing_appeal_delo_id: str) -> None:
+    """Полная страница без единой ссылки под осью публикации — признак
+    короткого `delo_id`, а не отсутствия опубликованных актов."""
+    from harvester.guards import listing_kind, suspect_wrong_delo_id
 
     good = parse_listing(listing_acts, court_domain=DOMAIN, cartoteka_id="g3")
-    bad = parse_listing(listing_foreign_ip, court_domain=DOMAIN, cartoteka_id="g3")
+    bad = parse_listing(listing_appeal_delo_id, court_domain=DOMAIN, cartoteka_id="g3")
 
-    assert not suspect_hidden_act_links(
-        sum(1 for row in good.rows if row.act_links), len(good.rows)
-    )
-    assert suspect_hidden_act_links(sum(1 for row in bad.rows if row.act_links), len(bad.rows))
-    # Пустая страница подозрительной не считается — там просто нечего скрывать.
-    assert not suspect_hidden_act_links(0, 0)
+    assert not suspect_wrong_delo_id(sum(1 for row in good.rows if row.act_links), len(good.rows))
+    assert suspect_wrong_delo_id(sum(1 for row in bad.rows if row.act_links), len(bad.rows))
+    # Пустая страница подозрительной не считается — там нечего наполнять.
+    assert not suspect_wrong_delo_id(0, 0)
+
+    # Прямой признак подмены: тот же счётчик, но другое производство.
+    assert listing_kind(listing_acts) == "кассация"
+    assert listing_kind(listing_appeal_delo_id) == "апелляция"
+    assert good.total == bad.total == 530

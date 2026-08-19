@@ -30,7 +30,7 @@ from .config import Settings
 from .config import settings as default_settings
 from .db import store
 from .directories import Cartoteka, Court
-from .guards import Verdict, classify, suspect_hidden_act_links
+from .guards import Verdict, classify, listing_kind, suspect_wrong_delo_id
 from .http import CourtClient
 from .parse.listing import parse_listing
 from .raw import RawStore
@@ -128,15 +128,18 @@ def harvest_listing(
                 )
 
                 if expected is None:
-                    if axis is DateAxis.PUBLICATION and suspect_hidden_act_links(
+                    kind = listing_kind(html)
+                    if axis is DateAxis.PUBLICATION and suspect_wrong_delo_id(
                         sum(1 for row in listing.rows if row.act_links), len(listing.rows)
                     ):
                         log.warning(
-                            "%s: под осью публикации нет НИ ОДНОЙ ссылки на текст акта "
-                            "на всей странице. Скорее всего запрос идёт с адреса, которому "
-                            "портал ссылки не показывает — корпус соберётся без текстов. "
-                            "См. docs/act-links-and-egress.md",
+                            "%s/%s: под осью публикации нет НИ ОДНОЙ ссылки на текст акта, "
+                            "а выдача озаглавлена «%s». Похоже на короткий delo_id: счётчик "
+                            "сойдётся, тексты будут недостижимы. "
+                            "См. docs/delo-id-and-act-links.md",
                             court.domain,
+                            cartoteka.id,
+                            kind or "—",
                         )
                         hidden_links = True
 
@@ -178,8 +181,8 @@ def harvest_listing(
                     if hidden_links:
                         note = (
                             "реквизиты собраны полностью, но ссылок на тексты нет ни у одного "
-                            "дела — вероятно, обход шёл с адреса, которому портал их не "
-                            "показывает. См. docs/act-links-and-egress.md"
+                            "дела — вероятно, перечень запрошен с коротким delo_id. "
+                            "См. docs/delo-id-and-act-links.md"
                         )
                 else:
                     status = "short"

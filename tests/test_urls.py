@@ -24,7 +24,7 @@ def _url(cartoteka_id: str = "g3", axis: DateAxis = DateAxis.ENTRY, page: int = 
 def test_entry_axis_matches_grammar_example() -> None:
     assert _url() == (
         "https://2kas.sudrf.ru/modules.php?name=sud_delo&srv_num=1&name_op=r&page=1"
-        "&delo_id=5&case_type=0&new=2800001&delo_table=g33_case"
+        "&delo_id=2800001&case_type=0&new=2800001&delo_table=g33_case"
         "&g33_case__ENTRY_DATE1D=01.06.2026&g33_case__ENTRY_DATE2D=07.06.2026"
         f"&Submit={SUBMIT_VALUE}"
     )
@@ -36,6 +36,19 @@ def test_vnkod_is_never_emitted() -> None:
     for cartoteka_id in ("g3", "u3", "p3", "adm3"):
         for axis in DateAxis:
             assert "vnkod" not in _url(cartoteka_id, axis).lower()
+
+
+def test_listing_uses_the_long_delo_id() -> None:
+    """С коротким `delo_id` портал отдаёт тот же счётчик и те же дела,
+    но озаглавливает выдачу «апелляция» и не даёт ссылок на тексты актов.
+    Счётчик при этом сходится, поэтому ошибка молчит."""
+    assert "&delo_id=2800001&" in _url("g3")
+    assert "&delo_id=2450001&" in _url("u3")
+    assert "&delo_id=43&" in _url("p3")
+    assert "&delo_id=2550001&" in _url("adm3")
+    # Реестр из Swift хранит короткие пары — для карточки они верны.
+    assert cartoteka("g3").delo_id == "5"
+    assert cartoteka("g3").listing_delo_id == "2800001"
 
 
 def test_new_is_always_sent() -> None:

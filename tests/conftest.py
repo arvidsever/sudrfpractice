@@ -24,15 +24,14 @@ def listing_acts() -> str:
 
 
 @pytest.fixture(scope="session")
-def listing_foreign_ip() -> str:
-    """Тот же запрос, что у `listing_acts`, но снятый с зарубежного адреса.
+def listing_appeal_delo_id() -> str:
+    """То же окно, что у `listing_acts`, но запрошенное с коротким `delo_id=5`.
 
-    Портал отдаёт полный счётчик, те же 25 строк и те же реквизиты,
-    но колонку «Судебные акты» присылает пустой и залитой серым.
-    Это не изменение портала: с российского адреса ссылки на месте.
-    Разбор — `docs/act-links-and-egress.md`.
+    Портал отдаёт тот же счётчик, те же 25 строк и те же реквизиты, но
+    озаглавливает выдачу «апелляция» и оставляет колонку «Судебные акты»
+    пустой. Разбор — `docs/delo-id-and-act-links.md`.
     """
-    return fixture("ksoyu_listing_foreign_ip")
+    return fixture("ksoyu_listing_appeal_delo_id")
 
 
 @pytest.fixture(scope="session")

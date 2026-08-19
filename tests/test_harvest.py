@@ -134,15 +134,14 @@ def test_dates_and_act_flag_are_stored(db_settings, offline_client) -> None:
 
 
 def test_missing_act_link_is_unknown_not_denial(
-    db_settings, monkeypatch, listing_foreign_ip: str
+    db_settings, monkeypatch, listing_appeal_delo_id: str
 ) -> None:
     """Пустая последняя колонка означает «не знаем», а не «акта нет».
 
-    `false` здесь было бы ложью: база утверждала бы отсутствие акта, хотя
-    карточку никто не открывал. Текст при этом доступен — карточка несёт
-    его в `cont_doc1`.
+    `false` здесь было бы ложью: колонка бывает пустой и потому, что перечень
+    запрошен с коротким `delo_id`. Акт при этом опубликован.
     """
-    payload = listing_foreign_ip.encode("cp1251", errors="replace")
+    payload = listing_appeal_delo_id.encode("cp1251", errors="replace")
     monkeypatch.setattr(
         "harvester.http.CourtClient.get",
         lambda self, url: Response(url=url, status_code=200, content=payload),

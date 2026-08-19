@@ -32,6 +32,21 @@ CAPTCHA_COURTS: frozenset[str] = frozenset(
 #: (`G3_DOCUMENT__` при `G33_CASE__`) и свой у каждой картотеки — подстановка
 #: чужого выдачи не даёт. Значения заданы явно, а не выведены правилом:
 #: это особенность платформы, и правило может однажды не сойтись.
+#: `delo_id` для ПЕРЕЧНЯ. У гражданской и уголовной кассации он обязан быть
+#: длинным: с короткой парой (`5`, `4`) портал отдаёт тот же набор дел и тот же
+#: счётчик, но рисует страницу как АПЕЛЛЯЦИОННУЮ и оставляет колонку «Судебные
+#: акты» пустой. Проверено 19.08.2026 — см. docs/delo-id-and-act-links.md.
+#:
+#: Реестр в `Sudrf` хранит короткие пары, и для приложения они верны: карточка
+#: и поиск по номеру с ними работают. Расходится только перечень, поэтому
+#: подстановка живёт здесь, а не в выгрузке.
+LISTING_DELO_ID_BY_TABLE: dict[str, str] = {
+    "g33_case": "2800001",
+    "u33_case": "2450001",
+    "p33_case": "43",
+    "adm33_case": "2550001",
+}
+
 DOC_PREFIX_BY_TABLE: dict[str, str] = {
     "g33_case": "G3_DOCUMENT__",
     "u33_case": "U3_DOCUMENT__",
@@ -72,6 +87,17 @@ class Cartoteka:
     case_number_field: str
     uid_field: str
     name_field: str
+
+    @property
+    def listing_delo_id(self) -> str:
+        """`delo_id`, с которым перечень отдаёт ссылки на тексты актов."""
+        try:
+            return LISTING_DELO_ID_BY_TABLE[self.delo_table]
+        except KeyError as exc:  # pragma: no cover — защита от нового delo_table
+            raise KeyError(
+                f"неизвестен delo_id перечня для {self.delo_table}; "
+                "короткая пара из реестра молча лишает выдачу ссылок на акты"
+            ) from exc
 
     @property
     def doc_prefix(self) -> str:

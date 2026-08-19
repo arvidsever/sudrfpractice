@@ -34,6 +34,10 @@ class CaptchaNotPassed(RuntimeError):
     """Суд с капчей не пропустил нас после всех попыток."""
 
 
+class CourtOnCooldown(RuntimeError):
+    """Суд просил отступить, и срок паузы ещё не вышел."""
+
+
 def within_night_window(window: tuple[int, int], moment: datetime | None = None) -> bool:
     """Попадает ли момент в окно сбора [от, до) по часам.
 
@@ -84,6 +88,10 @@ class CourtClient:
         #: и это увидит `guards.classify` — молча ничего не потеряется.
         self.captcha = captcha
         self.captcha_form_url = captcha_form_url
+        #: До какого момента суд трогать нельзя. Пауза общая на процесс:
+        #: следующая задача не должна начинать с того, чем предыдущая
+        #: только что заслужила отказ.
+        self._cooldown_until: dict[str, float] = _COOLDOWNS
         self._last_request: dict[str, float] = defaultdict(float)
         self._requests_today: dict[str, int] = defaultdict(int)
         self._client = client or httpx.Client(
@@ -112,8 +120,24 @@ class CourtClient:
             time.sleep(remaining)
         self._last_request[host] = time.monotonic()
 
+    def cooldown_left(self, host: str) -> float:
+        """Сколько секунд ещё нельзя трогать этот суд."""
+        return max(0.0, self._cooldown_until.get(host, 0.0) - time.monotonic())
+
+    def back_off(self, host: str, seconds: float, reason: str) -> None:
+        """Отступить от суда на заданный срок.
+
+        Продолжать стучаться после отказа — это и есть накопление
+        блокировки, от которого предупреждает §6 грамматики.
+        """
+        self._cooldown_until[host] = time.monotonic() + seconds
+        log.warning("%s: пауза %.0f мин — %s", host, seconds / 60, reason)
+
     def get(self, url: str) -> Response:
         host = httpx.URL(url).host
+        left = self.cooldown_left(host)
+        if left > 0:
+            raise CourtOnCooldown(f"{host}: ещё {left / 60:.0f} мин паузы")
         if self.bulk and not within_night_window(self.settings.night_window):
             start, end = self.settings.night_window
             raise OutsideCollectionWindow(
@@ -136,6 +160,8 @@ class CourtClient:
                 continue
 
             log.info("GET %s → %d (%d байт)", url, response.status_code, len(response.content))
+            if _looks_throttled(response.content):
+                self.back_off(host, self.settings.cooldown_seconds, "суд придержал адрес")
             if response.status_code >= 500:
                 last_error = httpx.HTTPStatusError(
                     f"{response.status_code}", request=response.request, response=response
@@ -190,11 +216,10 @@ class CourtClient:
                 return response
             log.info("%s: прочтение %s не подошло (правдоподобие %.3f)", host, text, likelihood)
 
-        raise CaptchaNotPassed(
-            f"{host}: ни одно из {len(readings)} прочтений капчи не подошло. "
-            "Картинка на этом адресе не сменится ещё несколько минут — "
-            "возвращаться сюда имеет смысл позже, а не сразу."
-        )
+        # Картинка не сменится ещё несколько минут, а значит и прочтения
+        # будут те же. Отступаем, вместо того чтобы копить отказы.
+        self.back_off(host, self.settings.captcha_cooldown_seconds, "капча не поддалась")
+        raise CaptchaNotPassed(f"{host}: ни одно из {len(readings)} прочтений капчи не подошло")
 
     @property
     def requests_today(self) -> dict[str, int]:
@@ -209,3 +234,14 @@ def with_captcha_params(url: str, text: str, captchaid: str) -> str:
     from .urls import with_captcha
 
     return with_captcha(url, text, captchaid)
+
+
+#: Паузы общие на процесс: клиенты создаются на каждую задачу, а суд один.
+_COOLDOWNS: dict[str, float] = {}
+
+_THROTTLE_MARKER = "Информация временно недоступна".encode("cp1251")
+
+
+def _looks_throttled(content: bytes) -> bool:
+    """Дешёвая проверка до разбора: маркер ищется прямо в байтах cp1251."""
+    return _THROTTLE_MARKER in content

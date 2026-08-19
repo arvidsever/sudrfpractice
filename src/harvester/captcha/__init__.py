@@ -12,6 +12,15 @@
 
 from .model import CaptchaModel, load_model
 from .preprocess import captcha_vector, decode_png
-from .solve import solve
+from .solve import candidates, read_captcha
 
-__all__ = ["CaptchaModel", "captcha_vector", "decode_png", "load_model", "solve"]
+# Имя `solve` здесь не экспортируется намеренно: оно перекрывало бы
+# одноимённый подмодуль, и `harvester.captcha.solve` означало бы функцию.
+__all__ = [
+    "CaptchaModel",
+    "candidates",
+    "captcha_vector",
+    "decode_png",
+    "load_model",
+    "read_captcha",
+]

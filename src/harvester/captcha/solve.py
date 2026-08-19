@@ -111,7 +111,7 @@ def _shift(vector: np.ndarray, dx: int, dy: int) -> np.ndarray:
     return out
 
 
-def solve(model: CaptchaModel, vector: np.ndarray, tta: bool = True) -> Solution:
+def read_captcha(model: CaptchaModel, vector: np.ndarray, tta: bool = True) -> Solution:
     """Распознать капчу. Уверенность — минимум по головам."""
     probs = probabilities(model, vector, tta)
     digits = probs.argmax(axis=1)

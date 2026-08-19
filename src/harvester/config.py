@@ -31,10 +31,13 @@ class Settings(BaseSettings):
 
     #: User-Agent обязателен: с дефолтным `curl/…` WAF отдаёт 403
     #: и «Данный запрос некорректен» (§1 грамматики). Контакт в UA — намеренно.
+    #:
+    #: Только ASCII: HTTP-заголовки кодируются latin-1, и кириллица здесь
+    #: роняет запрос ещё до отправки.
     user_agent: str = (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
         "(KHTML, like Gecko) Version/17.0 Safari/605.1.15 "
-        "(sudrfpractice; исследовательский сбор; arvid.sever@gmail.com)"
+        "(sudrfpractice research harvester; arvid.sever@gmail.com)"
     )
 
     #: Не меньше трёх секунд между запросами к одному хосту.

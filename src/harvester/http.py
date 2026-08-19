@@ -11,6 +11,7 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 
@@ -23,6 +24,22 @@ log = logging.getLogger("harvester.http")
 
 class DailyCapReached(RuntimeError):
     """Дневной потолок запросов к суду исчерпан."""
+
+
+class OutsideCollectionWindow(RuntimeError):
+    """Массовый обход запущен вне ночного окна."""
+
+
+def within_night_window(window: tuple[int, int], moment: datetime | None = None) -> bool:
+    """Попадает ли момент в окно сбора [от, до) по часам.
+
+    Окно может пересекать полночь (23–5), поэтому сравнение не сплошное.
+    """
+    start, end = window
+    hour = (moment or datetime.now()).hour
+    if start <= end:
+        return start <= hour < end
+    return hour >= start or hour < end
 
 
 @dataclass(slots=True)
@@ -44,8 +61,18 @@ class CourtClient:
     нельзя.
     """
 
-    def __init__(self, settings: Settings | None = None, client: httpx.Client | None = None):
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        client: httpx.Client | None = None,
+        *,
+        bulk: bool = False,
+    ):
+        """`bulk=True` — режим массового обхода: он и только он обязан идти
+        в ночное окно. Единичный диагностический запрос под это правило
+        не подпадает, иначе проверить суд днём стало бы невозможно."""
         self.settings = settings or default_settings
+        self.bulk = bulk
         self._last_request: dict[str, float] = defaultdict(float)
         self._requests_today: dict[str, int] = defaultdict(int)
         self._client = client or httpx.Client(
@@ -76,6 +103,11 @@ class CourtClient:
 
     def get(self, url: str) -> Response:
         host = httpx.URL(url).host
+        if self.bulk and not within_night_window(self.settings.night_window):
+            start, end = self.settings.night_window
+            raise OutsideCollectionWindow(
+                f"массовый обход разрешён только с {start}:00 до {end}:00"
+            )
         if self._requests_today[host] >= self.settings.daily_request_cap:
             raise DailyCapReached(
                 f"{host}: исчерпан дневной потолок ({self.settings.daily_request_cap})"

@@ -12,7 +12,6 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
-from harvester.config import settings
 from harvester.db.schema import metadata
 
 #: Колонка есть в базе, но не в metadata: generated-колонка `tsvector`
@@ -21,14 +20,8 @@ GENERATED_ONLY = {"act_text": {"tsv"}}
 
 
 @pytest.fixture(scope="module")
-def inspector():
-    try:
-        engine = create_engine(settings.database_url)
-        with engine.connect() as connection:
-            connection.execute(text("select 1"))
-    except Exception as exc:  # pragma: no cover — зависит от окружения
-        pytest.skip(f"база недоступна: {exc}")
-    return inspect(engine)
+def inspector(test_database_url: str):
+    return inspect(create_engine(test_database_url))
 
 
 def test_every_table_from_metadata_exists(inspector) -> None:

@@ -37,6 +37,20 @@ def main(argv: list[str] | None = None) -> int:
     url.add_argument("--to", dest="date_to", required=True, help="дд.мм.гггг")
     url.add_argument("--page", type=int, default=1)
 
+    run = sub.add_parser("harvest", help="обойти окно и записать дела в базу")
+    run.add_argument("--court", required=True)
+    run.add_argument("--cartoteka", required=True)
+    run.add_argument("--axis", default="publication", choices=[axis.value for axis in DateAxis])
+    run.add_argument("--from", dest="date_from", required=True, help="дд.мм.гггг")
+    run.add_argument("--to", dest="date_to", required=True, help="дд.мм.гггг")
+    run.add_argument(
+        "--pilot",
+        type=int,
+        metavar="N",
+        help="наблюдаемый пилот: не больше N страниц и без требования ночного окна. "
+        "Массовый обход идёт без этого флага и только ночью.",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "courts":
@@ -60,6 +74,29 @@ def main(argv: list[str] | None = None) -> int:
         loaded_courts, loaded_cartoteki = load()
         print(f"судов: {loaded_courts}, картотек: {loaded_cartoteki}")
         return 0
+
+    if args.command == "harvest":
+        import logging
+
+        from .harvest import harvest_listing
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        result = harvest_listing(
+            court(args.court),
+            cartoteka(args.cartoteka),
+            DateAxis(args.axis),
+            _parse_date(args.date_from),
+            _parse_date(args.date_to),
+            bulk=args.pilot is None,
+            max_pages=args.pilot,
+        )
+        print(
+            f"обход {result.run_id}: {result.status}, счётчик {result.expected}, "
+            f"дел {result.cases}, ссылок на акты {result.acts}, страниц {result.pages}"
+        )
+        if result.note:
+            print(result.note)
+        return 0 if result.status in ("complete", "pilot") else 1
 
     if args.command == "url":
         target = listing_url(

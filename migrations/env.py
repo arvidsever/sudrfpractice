@@ -11,7 +11,14 @@ from harvester.config import settings
 from harvester.db.schema import metadata
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.database_url)
+
+# URL из настроек — умолчание, а не приказ. Вызывающая сторона (тесты, скрипт
+# раскатки) может задать свою базу через `config.attributes`, и переписывать
+# её здесь значило бы накатить миграцию не туда.
+config.set_main_option(
+    "sqlalchemy.url",
+    config.attributes.get("sqlalchemy_url") or settings.database_url,
+)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

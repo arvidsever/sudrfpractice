@@ -89,9 +89,9 @@ case = Table(
     Column(
         "act_published",
         Boolean,
-        nullable=False,
-        server_default="false",
-        comment="262-ФЗ: публикуется не всё, отсутствие текста — законное состояние",
+        nullable=True,
+        comment="true — акт есть; false — карточку открыли, текста нет (262-ФЗ); "
+        "null — не проверяли. См. миграцию 0002",
     ),
     Column("first_seen", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("last_seen", DateTime(timezone=True), nullable=False, server_default=func.now()),

@@ -74,3 +74,22 @@ def test_parsing_a_non_listing_raises(listing_bad_new: str, listing_captcha_gate
     for html in (listing_bad_new, listing_captcha_gate):
         with pytest.raises(ValueError, match="не является выдачей"):
             parse_listing(html, court_domain=DOMAIN, cartoteka_id="g3")
+
+
+def test_listing_without_act_links_still_parses(listing_no_act_links: str) -> None:
+    """19.08.2026 портал убрал ссылки на тексты из последней колонки.
+
+    Разбор от этого не ломается: счётчик, строки и реквизиты те же.
+    Пустой `act_links` — теперь состояние по умолчанию, а не редкость.
+    """
+    page = parse_listing(listing_no_act_links, court_domain=DOMAIN, cartoteka_id="g3")
+
+    assert page.total == 530
+    assert len(page.rows) == 25
+    assert all(not row.act_links for row in page.rows)
+
+    # Реквизиты не пострадали — то же дело, что и в фикстуре от 06.08.2026.
+    first = page.rows[0]
+    assert first.case_number == "8Г-15211/2026 [88-14715/2026]"
+    assert first.judge == "Попова Елена Викторовна"
+    assert first.case_uid == "3128af6a-aafd-43ab-a873-18c4f46b860e"

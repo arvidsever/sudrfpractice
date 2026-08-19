@@ -17,9 +17,9 @@ from .schema import cartoteka as cartoteka_table
 from .schema import court as court_table
 
 
-def load() -> tuple[int, int]:
+def load(database_url: str | None = None) -> tuple[int, int]:
     """Записать суды и картотеки. Возвращает (сколько судов, сколько картотек)."""
-    engine = create_engine(settings.database_url)
+    engine = create_engine(database_url or settings.database_url)
     with engine.begin() as connection:
         court_rows = [
             {

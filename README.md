@@ -156,3 +156,5 @@ python -m harvester cards --court 5kas.sudrf.ru
 План разработки — [`docs/roadmap.md`](docs/roadmap.md).
 Модель капчи — [`docs/captcha-corpus.md`](docs/captcha-corpus.md).
 Правила доступа и 262-ФЗ — [`docs/ethics.md`](docs/ethics.md).
+
+[![repowise](https://api.repowise.dev/badge/wiki/arvidsever/sudrfpractice.svg)](https://repowise.dev/repo/arvidsever/sudrfpractice)

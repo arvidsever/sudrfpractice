@@ -15,9 +15,18 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Connection
 
 from ..dates import parse as parse_date
-from ..models import CaseRow
+from ..models import CaseCard, CaseRow
 from ..raw import RawRecord
-from .schema import act, act_text, case, harvest_run, raw_page
+from .schema import (
+    act,
+    act_text,
+    appeal,
+    case,
+    harvest_run,
+    hearing,
+    participant,
+    raw_page,
+)
 
 
 def save_raw_page(connection: Connection, record: RawRecord) -> int:
@@ -116,8 +125,12 @@ def save_acts(connection: Connection, case_pk: int, row: CaseRow) -> int:
         )
         connection.execute(
             statement.on_conflict_do_update(
-                index_elements=["case_pk", "doc_number", "text_number"],
-                set_={"kind": statement.excluded.kind, "url": statement.excluded.url},
+                index_elements=["case_pk", "text_number"],
+                set_={
+                    "kind": statement.excluded.kind,
+                    "url": statement.excluded.url,
+                    "doc_number": statement.excluded.doc_number,
+                },
             )
         )
     return len(row.act_links)
@@ -174,3 +187,101 @@ def close_run(
 
 def act_text_count(connection: Connection) -> int:
     return connection.execute(select(func.count()).select_from(act_text)).scalar_one()
+
+
+def save_card(connection: Connection, case_pk: int, card: CaseCard) -> None:
+    """Записать данные карточки: реквизиты, нижестоящий суд, участников, слушания.
+
+    Участники и слушания переписываются целиком: карточка — источник истины,
+    и частичное обновление оставляло бы призраков от прошлых разборов.
+    """
+    values = {
+        "category": card.category,
+        "appealed_act": card.appealed_act,
+        "appeal_result": card.appeal_result,
+        "card_fetched_at": datetime.now(UTC),
+    }
+    if card.lower_court is not None:
+        values |= {
+            "lower_region": card.lower_court.region,
+            "lower_court": card.lower_court.court,
+            "lower_case_number": card.lower_court.case_number,
+            "lower_decision_date": parse_date(card.lower_court.decision_date),
+        }
+    # Карточку открыли — значит про акт мы теперь ЗНАЕМ: он либо есть,
+    # либо не опубликован по 262-ФЗ. Это тот случай, когда false честен.
+    values["act_published"] = card.has_act_text
+
+    connection.execute(update(case).where(case.c.id == case_pk).values(**values))
+
+    connection.execute(participant.delete().where(participant.c.case_pk == case_pk))
+    if card.participants:
+        connection.execute(
+            participant.insert(),
+            [
+                {
+                    "case_pk": case_pk,
+                    "role": person.role,
+                    "name": person.name,
+                    "articles": person.articles,
+                    "outcome": person.outcome,
+                    "inn": person.inn,
+                    "kpp": person.kpp,
+                    "ogrn": person.ogrn,
+                    "ogrnip": person.ogrnip,
+                }
+                for person in card.participants
+            ],
+        )
+
+    connection.execute(appeal.delete().where(appeal.c.case_pk == case_pk))
+    if card.appeals:
+        connection.execute(
+            appeal.insert(),
+            [
+                {
+                    "case_pk": case_pk,
+                    "filed_at": parse_date(item.filed_at),
+                    "applicant_status": item.applicant_status,
+                    "applicant": item.applicant,
+                    "passed_to_study_at": parse_date(item.passed_to_study_at),
+                    "with_case_request": item.with_case_request,
+                    "ruling_date": parse_date(item.ruling_date),
+                    "study_result": item.study_result,
+                }
+                for item in card.appeals
+            ],
+        )
+
+    connection.execute(hearing.delete().where(hearing.c.case_pk == case_pk))
+    if card.hearings:
+        connection.execute(
+            hearing.insert(),
+            [
+                {
+                    "case_pk": case_pk,
+                    "event": item.event,
+                    "hearing_date": parse_date(item.date),
+                    "hearing_time": item.time,
+                    "place": item.place,
+                    "result": item.result,
+                    "published_at": parse_date(item.published_at),
+                }
+                for item in card.hearings
+            ],
+        )
+
+
+def act_for_text(connection: Connection, case_pk: int, text_number: int) -> int:
+    """Строка акта под номером вкладки; заводится, если её ещё нет.
+
+    Дела с оси поступления приходят без ссылки на акт — там `doc_number`
+    и `url` останутся пустыми, и это нормально: номер документа нужен
+    только для прямой ссылки, а identity держится на номере вкладки.
+    """
+    statement = insert(act).values(case_pk=case_pk, text_number=text_number)
+    statement = statement.on_conflict_do_update(
+        index_elements=["case_pk", "text_number"],
+        set_={"text_number": statement.excluded.text_number},
+    ).returning(act.c.id)
+    return connection.execute(statement).scalar_one()

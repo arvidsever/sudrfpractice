@@ -93,6 +93,14 @@ case = Table(
         comment="true — акт есть; false — карточку открыли, текста нет (262-ФЗ); "
         "null — не проверяли. См. миграцию 0002",
     ),
+    Column("category", Text, nullable=True),
+    Column("appealed_act", Text, nullable=True),
+    Column("appeal_result", Text, nullable=True),
+    Column("lower_region", Text, nullable=True),
+    Column("lower_court", Text, nullable=True),
+    Column("lower_case_number", Text, nullable=True),
+    Column("lower_decision_date", Date, nullable=True),
+    Column("card_fetched_at", DateTime(timezone=True), nullable=True),
     Column("first_seen", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("last_seen", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("court_domain", "case_uid", name="uq_case_court_uid"),
@@ -103,12 +111,19 @@ act = Table(
     metadata,
     Column("id", BigInteger, primary_key=True, autoincrement=True),
     Column("case_pk", BigInteger, ForeignKey("case.id", ondelete="CASCADE"), nullable=False),
-    Column("doc_number", String(32), nullable=False, comment="number= в ссылке name_op=doc"),
+    Column(
+        "doc_number",
+        String(32),
+        nullable=True,
+        comment="number= из ссылки перечня; в карточке его нет",
+    ),
     Column("text_number", Integer, nullable=False, server_default="1"),
     Column("kind", Text, nullable=True),
-    Column("url", Text, nullable=False),
+    Column("url", Text, nullable=True),
     Column("publ_date", Date, nullable=True),
-    UniqueConstraint("case_pk", "doc_number", "text_number", name="uq_act_case_doc"),
+    # Акт опознаётся номером вкладки: doc_number есть только у тех, кого
+    # мы нашли через ссылку в перечне.
+    UniqueConstraint("case_pk", "text_number", name="uq_act_case_text"),
 )
 
 act_text = Table(
@@ -169,4 +184,48 @@ harvest_task = Table(
     UniqueConstraint(
         "court_domain", "cartoteka_id", "axis", "window_from", "window_to", name="uq_task_window"
     ),
+)
+
+
+participant = Table(
+    "participant",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("case_pk", BigInteger, ForeignKey("case.id", ondelete="CASCADE"), nullable=False),
+    Column("role", Text, nullable=False),
+    Column("name", Text, nullable=False),
+    Column("articles", Text, nullable=True, comment="перечень статей: уголовные и КоАП"),
+    Column("outcome", Text, nullable=True, comment="результат в отношении лица: уголовные"),
+    Column("inn", String(16), nullable=True),
+    Column("kpp", String(16), nullable=True),
+    Column("ogrn", String(20), nullable=True),
+    Column("ogrnip", String(20), nullable=True),
+)
+
+hearing = Table(
+    "hearing",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("case_pk", BigInteger, ForeignKey("case.id", ondelete="CASCADE"), nullable=False),
+    Column("event", Text, nullable=False),
+    Column("hearing_date", Date, nullable=True),
+    Column("hearing_time", String(8), nullable=True),
+    Column("place", Text, nullable=True),
+    Column("result", Text, nullable=True),
+    Column("published_at", Date, nullable=True),
+)
+
+
+appeal = Table(
+    "appeal",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("case_pk", BigInteger, ForeignKey("case.id", ondelete="CASCADE"), nullable=False),
+    Column("filed_at", Date, nullable=True),
+    Column("applicant_status", Text, nullable=True),
+    Column("applicant", Text, nullable=True),
+    Column("passed_to_study_at", Date, nullable=True),
+    Column("with_case_request", Text, nullable=True),
+    Column("ruling_date", Date, nullable=True),
+    Column("study_result", Text, nullable=True),
 )

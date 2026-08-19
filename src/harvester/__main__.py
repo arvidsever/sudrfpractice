@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
         "--pilot", action="store_true", help="наблюдаемый прогон: без требования ночного окна"
     )
 
-    acts = sub.add_parser("acts", help="скачать тексты актов, у которых их ещё нет")
+    acts = sub.add_parser("cards", help="обойти карточки дел: тексты актов, участники, движение")
     acts.add_argument("--court", required=True, help="домен суда, напр. 5kas.sudrf.ru")
     acts.add_argument("--limit", type=int, help="взять не больше N актов за прогон")
     acts.add_argument(
@@ -261,16 +261,18 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    if args.command == "acts":
+    if args.command == "cards":
         import logging
 
-        from .acts import collect_act_texts
+        from .cards import collect_cards
 
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-        result = collect_act_texts(args.court, limit=args.limit, bulk=not args.pilot)
+        result = collect_cards(args.court, limit=args.limit, bulk=not args.pilot)
         print(
-            f"{result.court_domain}: взято {result.attempted}, записано {result.stored}, "
-            f"пустых {result.empty}, ошибок {result.failed}, осталось {result.remaining}"
+            f"{result.court_domain}: карточек {result.cards} из {result.attempted}, "
+            f"текстов {result.texts}, участников {result.participants}, "
+            f"без текста {result.without_text}, ошибок {result.failed}, "
+            f"осталось {result.remaining}"
         )
         if result.throttled:
             print("суд попросил перестать — продолжать после паузы")

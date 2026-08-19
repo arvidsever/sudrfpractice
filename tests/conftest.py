@@ -53,6 +53,18 @@ def listing_captcha_gate() -> str:
 
 
 @pytest.fixture(scope="session")
+def card_criminal() -> str:
+    """Карточка уголовной кассации: «ЛИЦА» с перечнем статей и «СТОРОНЫ»."""
+    return fixture("ksoyu_card_criminal")
+
+
+@pytest.fixture(scope="session")
+def card_koap() -> str:
+    """Карточка КоАП: «СТОРОНЫ ПО ДЕЛУ» со статьями, без слушаний и жалоб."""
+    return fixture("ksoyu_card_koap")
+
+
+@pytest.fixture(scope="session")
 def temporarily_unavailable() -> str:
     """Антибрутфорс-ответ суда: «Информация временно недоступна».
 

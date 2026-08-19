@@ -182,3 +182,29 @@ def test_act_knowledge_is_not_erased_by_the_other_axis(
     engine.dispose()
 
     assert after is True, "знание об акте пропало при обходе по другой оси"
+
+
+def test_deferred_window_is_not_recorded_as_short(db_settings, monkeypatch) -> None:
+    """«Собирать было нельзя» и «собралось не всё» — разные записи журнала.
+
+    Журнал полноты — единственный источник ответа на вопрос «что осталось
+    перечитать». Дневной запуск `night-run.sh` пишет в него по строке
+    на суд; под видом `failed` они заставили бы искать причину недосбора
+    там, где обход просто не начинался.
+    """
+    from harvester.http import OutsideCollectionWindow
+
+    def dawn(self, url: str):
+        raise OutsideCollectionWindow("массовый обход разрешён только с 1:00 до 7:00")
+
+    monkeypatch.setattr("harvester.http.CourtClient.get", dawn)
+
+    with pytest.raises(OutsideCollectionWindow):
+        _harvest(db_settings)
+
+    engine = create_engine(db_settings.database_url)
+    with engine.connect() as connection:
+        status = connection.execute(select(harvest_run.c.status)).scalar_one()
+    engine.dispose()
+
+    assert status == "deferred", "отложенное окно не недосбор"

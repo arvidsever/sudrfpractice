@@ -148,7 +148,12 @@ harvest_run = Table(
     Column("expected_count", Integer, nullable=True, comment="счётчик «Всего найдено»"),
     Column("fetched_rows", Integer, nullable=False, server_default="0"),
     Column("pages_done", Integer, nullable=False, server_default="0"),
-    Column("status", String(16), nullable=False, comment="running | complete | short | failed"),
+    Column(
+        "status",
+        String(16),
+        nullable=False,
+        comment="running | complete | empty | pilot | short | throttled | deferred | failed",
+    ),
     Column("note", Text, nullable=True),
     Column("started_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("finished_at", DateTime(timezone=True), nullable=True),

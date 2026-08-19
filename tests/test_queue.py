@@ -161,7 +161,48 @@ def test_end_of_night_returns_the_window_untouched(db_settings, monkeypatch) -> 
 
     engine = create_engine(db_settings.database_url)
     with engine.connect() as connection:
-        statuses = list(connection.execute(select(harvest_task.c.status)).scalars())
+        rows = list(connection.execute(select(harvest_task.c.status, harvest_task.c.attempts)))
     engine.dispose()
 
-    assert set(statuses) == {"pending"}, "окно должно вернуться в очередь нетронутым"
+    assert {row.status for row in rows} == {"pending"}, "окно должно вернуться в очередь"
+    assert {row.attempts for row in rows} == {0}, (
+        "нетронутым — значит и попытка возвращается: её списал `claim` "
+        "до первого запроса, а запроса не было"
+    )
+
+
+def test_court_on_cooldown_does_not_spend_an_attempt(db_settings, monkeypatch) -> None:
+    """Суд попросил отступить — окно тут ни при чём.
+
+    `claim` списывает попытку до первого запроса. Если её не вернуть,
+    несколько придержаний подряд выведут окно из очереди насовсем,
+    и оно не попадёт ни в один счётчик неудач.
+    """
+    from sqlalchemy import create_engine, select
+
+    from harvester import run as run_module
+    from harvester.db.schema import harvest_task
+    from harvester.http import CourtOnCooldown
+
+    fill_queue(
+        settings=db_settings,
+        start=WINDOW[0],
+        end=WINDOW[1],
+        only_courts=["5kas.sudrf.ru"],
+        only_cartoteki=["g3"],
+    )
+
+    def asked_to_back_off(*args, **kwargs):
+        raise CourtOnCooldown("суд на паузе до 03:20")
+
+    monkeypatch.setattr(run_module, "harvest_listing", asked_to_back_off)
+    run_module.run_queue(settings=db_settings, only_courts=["5kas.sudrf.ru"])
+
+    engine = create_engine(db_settings.database_url)
+    with engine.connect() as connection:
+        rows = list(connection.execute(select(harvest_task.c.status, harvest_task.c.attempts)))
+    engine.dispose()
+
+    spent = [row for row in rows if row.attempts > 0]
+    assert not spent, "придержание не тратит попытку"
+    assert "throttled" in {row.status for row in rows}

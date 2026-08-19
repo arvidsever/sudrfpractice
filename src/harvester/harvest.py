@@ -32,6 +32,7 @@ from .config import settings as default_settings
 from .db import store
 from .directories import Cartoteka, Court
 from .guards import Verdict, classify, listing_kind, suspect_wrong_delo_id
+from .http import CourtOnCooldown, OutsideCollectionWindow
 from .parse.listing import parse_listing
 from .raw import RawStore
 from .urls import DateAxis, listing_url, page_count
@@ -197,6 +198,21 @@ def harvest_listing(
                     status = "short"
                     note = f"счётчик обещал {expected}, разобрано {cases}"
 
+    except OutsideCollectionWindow as exc:
+        # Собирать было нельзя — это не недосбор. Записанное сюда `failed`
+        # заставило бы сверку полноты (этап 5.2) искать причину там, где
+        # её нет: окно вернулось в очередь целым и соберётся ночью.
+        status = "deferred"
+        note = f"{type(exc).__name__}: {exc}"
+        log.info("окно отложено: %s", exc)
+        raise
+    except CourtOnCooldown as exc:
+        # Суд попросил отступить. Тот же статус, что и у придержания,
+        # пойманного внутри обхода, — причина одна.
+        status = "throttled"
+        note = f"{type(exc).__name__}: {exc}"
+        log.info("окно отложено: %s", exc)
+        raise
     except Exception as exc:  # noqa: BLE001 — статус обхода важнее типа ошибки
         status = "failed"
         note = f"{type(exc).__name__}: {exc}"

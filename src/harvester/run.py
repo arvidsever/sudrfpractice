@@ -97,16 +97,17 @@ def _work_one_court(
             )
         except OutsideCollectionWindow as exc:
             # Ночное окно кончилось. Это не сбой окна: возвращаем задание
-            # нетронутым и уходим. Иначе на рассвете прогон сжёг бы попытки
-            # у десятков окон подряд и часть из них выбыла бы навсегда.
-            task_queue.complete(engine, task, status="pending")
+            # нетронутым — вместе с попыткой, которую списал `claim`. Иначе
+            # на рассвете прогон сжигал бы попытку у окна на каждый суд,
+            # и однажды окно выбыло бы из очереди навсегда.
+            task_queue.complete(engine, task, status="pending", refund=True)
             log.info("%s: %s — прогон останавливается до следующей ночи", domain, exc)
             stop.set()
             return
         except CourtOnCooldown as exc:
             # Не вина окна: суд просто попросил отступить. Возвращаем задание
             # в очередь, не тратя попытку впустую на следующем заходе.
-            task_queue.complete(engine, task, status="throttled", error=str(exc))
+            task_queue.complete(engine, task, status="throttled", error=str(exc), refund=True)
             totals.add(throttled=True)
             return
         except Exception as exc:  # noqa: BLE001 — одно окно не должно ронять прогон

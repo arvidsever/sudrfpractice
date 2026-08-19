@@ -87,18 +87,31 @@ def complete(
     cases_found: int | None = None,
     run_id: int | None = None,
     error: str | None = None,
+    refund: bool = False,
 ) -> None:
+    """Отметить окно. `refund` возвращает вместе с окном и попытку.
+
+    Попытка тратится в `claim`, до первого запроса. Если окно вернули
+    не потому, что оно не собралось, а потому что собирать было нельзя —
+    кончилось ночное окно, суд на паузе, — попытка не потрачена ни на
+    что. Без возврата каждый рассвет списывал бы по попытке у окна на
+    суд, а три дневных запуска `night-run.sh` подряд вывели бы десять
+    окон из очереди навсегда: `claim` берёт только `attempts < 3`,
+    и выбывшие не попадают ни в один счётчик неудач.
+    """
+    values: dict[str, object] = {
+        "status": status,
+        "cases_found": cases_found,
+        "run_id": run_id,
+        "last_error": error,
+        "updated_at": func.now(),
+    }
+    if refund:
+        values["attempts"] = func.greatest(harvest_task.c.attempts - 1, 0)
+
     with engine.begin() as connection:
         connection.execute(
-            update(harvest_task)
-            .where(harvest_task.c.id == task.id)
-            .values(
-                status=status,
-                cases_found=cases_found,
-                run_id=run_id,
-                last_error=error,
-                updated_at=func.now(),
-            )
+            update(harvest_task).where(harvest_task.c.id == task.id).values(**values)
         )
 
 

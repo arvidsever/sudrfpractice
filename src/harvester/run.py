@@ -23,7 +23,7 @@ from .directories import cartoteka as find_cartoteka
 from .directories import court as find_court
 from .directories import courts
 from .harvest import harvest_listing
-from .http import _COOLDOWNS, CourtOnCooldown
+from .http import _COOLDOWNS, CourtOnCooldown, OutsideCollectionWindow
 from .urls import DateAxis
 
 log = logging.getLogger("harvester.run")
@@ -95,6 +95,14 @@ def _work_one_court(
                 settings=settings,
                 bulk=bulk,
             )
+        except OutsideCollectionWindow as exc:
+            # Ночное окно кончилось. Это не сбой окна: возвращаем задание
+            # нетронутым и уходим. Иначе на рассвете прогон сжёг бы попытки
+            # у десятков окон подряд и часть из них выбыла бы навсегда.
+            task_queue.complete(engine, task, status="pending")
+            log.info("%s: %s — прогон останавливается до следующей ночи", domain, exc)
+            stop.set()
+            return
         except CourtOnCooldown as exc:
             # Не вина окна: суд просто попросил отступить. Возвращаем задание
             # в очередь, не тратя попытку впустую на следующем заходе.

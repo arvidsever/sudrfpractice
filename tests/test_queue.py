@@ -131,3 +131,37 @@ def test_summary_counts_by_status(db_settings) -> None:
 
     assert counts["done"] == 1
     assert counts["pending"] == 2
+
+
+def test_end_of_night_returns_the_window_untouched(db_settings, monkeypatch) -> None:
+    """Ночное окно кончилось — это не сбой окна.
+
+    Без отдельной обработки прогон на рассвете сжёг бы попытки у десятков
+    окон подряд, и часть из них выбыла бы из очереди навсегда.
+    """
+    from sqlalchemy import create_engine, select
+
+    from harvester import run as run_module
+    from harvester.db.schema import harvest_task
+    from harvester.http import OutsideCollectionWindow
+
+    fill_queue(
+        settings=db_settings,
+        start=WINDOW[0],
+        end=WINDOW[1],
+        only_courts=["5kas.sudrf.ru"],
+        only_cartoteki=["g3"],
+    )
+
+    def dawn(*args, **kwargs):
+        raise OutsideCollectionWindow("массовый обход разрешён только с 1:00 до 7:00")
+
+    monkeypatch.setattr(run_module, "harvest_listing", dawn)
+    run_module.run_queue(settings=db_settings, only_courts=["5kas.sudrf.ru"])
+
+    engine = create_engine(db_settings.database_url)
+    with engine.connect() as connection:
+        statuses = list(connection.execute(select(harvest_task.c.status)).scalars())
+    engine.dispose()
+
+    assert set(statuses) == {"pending"}, "окно должно вернуться в очередь нетронутым"

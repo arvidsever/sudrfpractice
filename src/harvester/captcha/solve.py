@@ -121,3 +121,37 @@ def solve(model: CaptchaModel, vector: np.ndarray, tta: bool = True) -> Solution
         confidence=float(per_digit.min()),
         per_digit=tuple(float(p) for p in per_digit),
     )
+
+
+def candidates(
+    model: CaptchaModel, vector: np.ndarray, limit: int = 4, tta: bool = True
+) -> list[tuple[str, float]]:
+    """Варианты прочтения по убыванию правдоподобия.
+
+    Портал держит одну картинку на IP несколько минут и НЕ меняет её
+    от неверных ответов — проверено: три захода за формой подряд дают тот же
+    `captchaid` и те же байты. Значит переспрашивать модель по новой форме
+    бесполезно, а перебирать надо прочтения одной и той же картинки.
+
+    Ошибается модель почти всегда в одной цифре, поэтому кандидаты строятся
+    заменой ОДНОЙ цифры на второй по вероятности вариант, начиная с той
+    головы, где модель сомневалась сильнее всего. Отношение `p2 / p1` и есть
+    цена такой замены.
+    """
+    probs = probabilities(model, vector, tta)
+    order = np.argsort(-probs, axis=1)
+    best = "".join(str(int(d)) for d in order[:, 0])
+    joint = float(probs[np.arange(len(order)), order[:, 0]].min())
+
+    result = [(best, joint)]
+    swaps = []
+    for head in range(probs.shape[0]):
+        first, second = order[head, 0], order[head, 1]
+        p1, p2 = probs[head, first], probs[head, second]
+        if p1 > 0:
+            swaps.append((float(p2 / p1), head, int(second)))
+
+    for ratio, head, digit in sorted(swaps, reverse=True)[: max(0, limit - 1)]:
+        text = best[:head] + str(digit) + best[head + 1 :]
+        result.append((text, joint * ratio))
+    return result

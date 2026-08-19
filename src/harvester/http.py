@@ -148,9 +148,11 @@ class CourtClient:
     def get_passing_captcha(self, url: str, attempts: int = 3) -> Response:
         """Как `get`, но на капча-судах проходит капчу и повторяет запрос.
 
-        Перебирать одну и ту же картинку бесполезно: портал держит её
-        на IP несколько минут и от неверных ответов не меняет. Поэтому
-        каждая попытка идёт за НОВОЙ формой, а не переспрашивает модель.
+        Перебираются ПРОЧТЕНИЯ одной картинки, а не картинки: портал держит
+        капчу на IP несколько минут и от неверных ответов не меняет —
+        проверено, три захода за формой подряд дают тот же `captchaid`
+        и те же байты. Значит новая форма ничего не даёт, а вот второй
+        по вероятности вариант цифры — даёт.
         """
         from .captcha.gate import extract_challenge
         from .guards import Verdict, classify
@@ -165,23 +167,34 @@ class CourtClient:
         if solver is None or self.captcha_form_url is None:
             return response
 
-        for attempt in range(1, attempts + 1):
-            solver.forget(host)
-            form = self.get(self.captcha_form_url(url))
-            challenge = extract_challenge(form.text)
-            if challenge is None:
-                log.warning("%s: в форме нет капчи, хотя выдача её требует", host)
-                return response
-
-            token = solver.solve_challenge(host, challenge)
-            response = self.get(_with_token(url, token))
-            if classify(response.text).verdict is not Verdict.CAPTCHA_GATE:
-                log.info("%s: капча пройдена с попытки %d", host, attempt)
-                return response
-            log.info("%s: код не подошёл, попытка %d из %d", host, attempt, attempts)
-
         solver.forget(host)
-        raise CaptchaNotPassed(f"{host}: капча не пройдена за {attempts} попыток")
+        form = self.get(self.captcha_form_url(url))
+        challenge = extract_challenge(form.text)
+        if challenge is None:
+            log.warning("%s: в форме нет капчи, хотя выдача её требует", host)
+            return response
+
+        readings = solver.read(challenge, limit=attempts)
+        for number, (text, likelihood) in enumerate(readings, start=1):
+            candidate = with_captcha_params(url, text, challenge.captchaid)
+            response = self.get(candidate)
+            if classify(response.text).verdict is not Verdict.CAPTCHA_GATE:
+                solver.accept(host, challenge, text)
+                log.info(
+                    "%s: капча пройдена прочтением %s (вариант %d из %d)",
+                    host,
+                    text,
+                    number,
+                    len(readings),
+                )
+                return response
+            log.info("%s: прочтение %s не подошло (правдоподобие %.3f)", host, text, likelihood)
+
+        raise CaptchaNotPassed(
+            f"{host}: ни одно из {len(readings)} прочтений капчи не подошло. "
+            "Картинка на этом адресе не сменится ещё несколько минут — "
+            "возвращаться сюда имеет смысл позже, а не сразу."
+        )
 
     @property
     def requests_today(self) -> dict[str, int]:
@@ -189,6 +202,10 @@ class CourtClient:
 
 
 def _with_token(url: str, token) -> str:
+    return with_captcha_params(url, token.text, token.captchaid)
+
+
+def with_captcha_params(url: str, text: str, captchaid: str) -> str:
     from .urls import with_captcha
 
-    return with_captcha(url, token.text, token.captchaid)
+    return with_captcha(url, text, captchaid)

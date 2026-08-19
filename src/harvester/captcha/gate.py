@@ -5,7 +5,8 @@
 * картинка приходит **инлайном** в форме как `data:image/png;base64,…`,
   рядом лежит `<input name="captchaid">` — отдельного запроса за картинкой нет;
 * одна капча держится на IP несколько минут и **не меняется от неверных
-  ответов**, поэтому перебор бесполезен;
+  ответов** — проверено: три захода за формой подряд дают тот же `captchaid`
+  и те же байты картинки. Поэтому перебирать надо не картинки, а прочтения;
 * решённая пара действует на весь регион около шести часов.
 
 Срок жизни пары здесь — оптимизация, а не условие правильности: протухшая
@@ -24,7 +25,7 @@ from selectolax.parser import HTMLParser
 
 from .model import CaptchaModel
 from .preprocess import captcha_vector, png_from_data_uri
-from .solve import solve
+from .solve import candidates as read_candidates
 
 log = logging.getLogger("harvester.captcha")
 
@@ -69,10 +70,9 @@ def extract_challenge(html: str) -> CaptchaChallenge | None:
 class CaptchaSolver:
     """Решает капчу и помнит решённую пару по суду.
 
-    Порога уверенности нет намеренно: для фонового сбора неверный ответ
-    стоит одной попытки на свежей картинке, а портал капчу не жжёт.
-    Отсекать по уверенности значило бы менять дешёвую ошибку на дорогое
-    бездействие.
+    Порога уверенности нет намеренно: неверный ответ стоит одной попытки,
+    а отсекать по уверенности значило бы менять дешёвую ошибку на дорогое
+    бездействие. Вместо порога — перебор прочтений одной картинки.
     """
 
     def __init__(self, model: CaptchaModel, ttl_seconds: float = 30 * 60):
@@ -90,18 +90,17 @@ class CaptchaSolver:
         """Пара не подошла — выбрасываем, чтобы следующий заход взял свежую."""
         self._tokens.pop(domain, None)
 
-    def solve_challenge(self, domain: str, challenge: CaptchaChallenge) -> CaptchaToken:
-        solution = solve(self.model, captcha_vector(challenge.png))
-        log.info(
-            "%s: капча решена как %s (уверенность %.2f)",
-            domain,
-            solution.text,
-            solution.confidence,
-        )
-        token = CaptchaToken(
-            text=solution.text,
-            captchaid=challenge.captchaid,
-            obtained_at=time.monotonic(),
-        )
+    def read(self, challenge: CaptchaChallenge, limit: int = 4) -> list[tuple[str, float]]:
+        """Прочтения картинки по убыванию правдоподобия.
+
+        Первое — то, что модель считает верным; дальше замены одной цифры
+        на второй по вероятности вариант, начиная с самой сомнительной
+        позиции. Ошибается модель почти всегда ровно в одной цифре.
+        """
+        return read_candidates(self.model, captcha_vector(challenge.png), limit=limit)
+
+    def accept(self, domain: str, challenge: CaptchaChallenge, text: str) -> CaptchaToken:
+        """Запомнить пару, которую суд принял."""
+        token = CaptchaToken(text=text, captchaid=challenge.captchaid, obtained_at=time.monotonic())
         self._tokens[domain] = token
         return token

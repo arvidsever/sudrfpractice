@@ -66,6 +66,11 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("queue", help="показать состояние очереди")
 
+    catch = sub.add_parser("catchup", help="добрать опубликованное за последние дни")
+    catch.add_argument("--days", type=int, default=3, help="сколько дней назад, по умолчанию 3")
+    catch.add_argument("--court", action="append")
+    catch.add_argument("--pilot", action="store_true", help="без требования ночного окна")
+
     archive = sub.add_parser("archive", help="выгрузить сырьё и веса в объектное хранилище")
     archive.add_argument("--dry-run", action="store_true", help="показать, но не заливать")
     archive.add_argument("--model", action="store_true", help="залить и веса решателя капчи")
@@ -187,6 +192,21 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         for row in rows:
             print(f"{row.status:<10} {row[1]:>6}  {row[2]} … {row[3]}")
+        return 0
+
+    if args.command == "catchup":
+        import logging
+
+        from .catchup import catchup
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        result = catchup(days=args.days, only_courts=args.court, bulk=not args.pilot)
+        print(
+            f"окон {result.windows}, дел {result.cases}, ссылок на акты {result.acts}, "
+            f"пропущено судов {result.skipped}, неудач {result.failed}"
+        )
+        for problem in result.problems:
+            print(f"  {problem}")
         return 0
 
     if args.command == "archive":

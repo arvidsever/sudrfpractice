@@ -12,6 +12,7 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.14",
     "zstandard>=0.23",
+    "numpy>=2.1",
 ]
 
 [project.optional-dependencies]

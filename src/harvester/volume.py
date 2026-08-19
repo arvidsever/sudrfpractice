@@ -49,10 +49,15 @@ class Measurement:
 #: зависимость замера от планировщика ради одной константы.
 CORPUS_START = date(2019, 10, 1)
 
-#: На сколько кусков резать глубину, когда счётчик ко всей картотеке
-#: суду не дался. Три — потому что вторая попытка должна быть заметно
-#: легче первой, а не той же работой с датами в параметрах.
-_DEPTH_CHUNKS = 3
+#: Ниже этого куск дробить не будем: если суд не считает даже месяц,
+#: дело уже не в цене запроса. Месяц выбран не наугад — именно такими
+#: окнами идёт индекс, и `3kas/g3` на месяце отвечает (2 000 дел за июнь
+#: 2026), а на трети глубины уже нет.
+_MIN_SPAN_DAYS = 31
+
+#: Сколько запросов позволено второй попытке. Дробление адаптивное,
+#: и без потолка кривой ответ увёл бы его в долгий обход.
+_MAX_PROBES = 32
 
 
 def measure_pair(
@@ -73,7 +78,8 @@ def measure_pair(
 
     Окно «01.10.2019 — сегодня» тут не помогло бы: это и есть вся глубина,
     та же работа для сервера, только с датами в параметрах. Поэтому глубина
-    режется на `_DEPTH_CHUNKS` частей и счётчики складываются.
+    делится пополам, а кусок, который не дался, делится дальше — пока суд
+    не сосчитает или пока кусок не сожмётся до месяца.
 
     Складывать их законно именно по оси ПОСТУПЛЕНИЯ: дата поступления
     у дела одна, куски не пересекаются и ничего не теряют на стыках.
@@ -126,22 +132,13 @@ def measure_pair(
     return Measurement(court.domain, cartoteka.id, None, "failed", state.verdict.value, raw=raw)
 
 
-def split_depth(start: date, end: date, parts: int = _DEPTH_CHUNKS) -> list[tuple[date, date]]:
-    """Порезать глубину на смежные непересекающиеся куски.
-
-    Границы считаются по дням, а не по годам: годы у судов неравномерны,
-    а нужны куски сопоставимой тяжести, а не круглые даты.
-    """
-    if parts < 1:
-        raise ValueError("кусков должно быть хотя бы один")
+def split_in_two(start: date, end: date) -> list[tuple[date, date]]:
+    """Разделить отрезок пополам встык, без нахлёста и без дыры."""
     days = (end - start).days
-    if days < parts:
+    if days < 1:
         return [(start, end)]
-
-    edges = [start + timedelta(days=days * i // parts) for i in range(parts)]
-    chunks = [(edges[i], edges[i + 1] - timedelta(days=1)) for i in range(parts - 1)]
-    chunks.append((edges[parts - 1], end))
-    return chunks
+    middle = start + timedelta(days=days // 2)
+    return [(start, middle), (middle + timedelta(days=1), end)]
 
 
 def _measure_by_chunks(
@@ -153,17 +150,44 @@ def _measure_by_chunks(
     today: date | None,
     first_raw: RawRecord | None,
 ) -> Measurement:
-    """Вторая попытка: сумма счётчиков по кускам глубины."""
-    chunks = split_depth(CORPUS_START, today or date.today())
-    total = 0
+    """Вторая попытка: дробить глубину, пока суд не сможет сосчитать.
+
+    На сколько частей резать — заранее неизвестно: у 1 КСОЮ счётчик
+    по всей гражданской картотеке (236 445 дел) отдаётся сразу, а у 3 КСОЮ
+    не отдаётся даже треть глубины. Дело не в размере картотеки, а в том,
+    сколько тянет конкретный сервер. Поэтому кусок, который не дался,
+    делится пополам, и так до месяца — ниже дробить бессмысленно, месяц
+    3 КСОЮ считает.
+
+    Складывать куски законно именно по оси ПОСТУПЛЕНИЯ: дата поступления
+    у дела одна, куски встык и ничего не теряют на стыках. По оси
+    публикации сумма была бы неверной — у дела может быть несколько
+    опубликованных актов.
+    """
+    pending = list(reversed(split_in_two(CORPUS_START, today or date.today())))
+    total, probes, deepest = 0, 0, 0
     raw = first_raw
 
-    for chunk_from, chunk_to in chunks:
+    while pending:
+        chunk_from, chunk_to = pending.pop()
         window = f"{chunk_from:%d.%m.%Y}\u2013{chunk_to:%d.%m.%Y}"
-        url = listing_url(court, cartoteka, DateAxis.ENTRY, chunk_from, chunk_to)
+        span = (chunk_to - chunk_from).days + 1
+        deepest = max(deepest, span)
+
+        if probes >= _MAX_PROBES:
+            return Measurement(
+                court.domain,
+                cartoteka.id,
+                None,
+                "throttled",
+                f"дробление упёрлось в потолок в {_MAX_PROBES} запросов, "
+                f"не сосчитан кусок {window}",
+                raw=raw,
+            )
+        probes += 1
 
         try:
-            response = client.get_passing_captcha(url)
+            response = client.get_passing_captcha(url_for(court, cartoteka, chunk_from, chunk_to))
         except Exception as exc:  # noqa: BLE001 — один суд не должен ронять замер
             return Measurement(
                 court.domain,
@@ -177,39 +201,48 @@ def _measure_by_chunks(
         if raw_store is not None:
             raw = raw_store.save(
                 response.content,
-                url=url,
+                url=url_for(court, cartoteka, chunk_from, chunk_to),
                 court_domain=court.domain,
                 http_status=response.status_code,
                 content_kind="volume",
             )
 
         state = classify(response.text)
-        if state.verdict is not Verdict.LISTING or state.total is None:
-            if state.verdict is Verdict.THROTTLED:
-                # Не дался и облегчённый запрос — значит дело не в цене,
-                # и просьбу отойти надо исполнить.
-                client.back_off(
-                    court.domain, client.settings.cooldown_seconds, "суд придержал адрес"
-                )
-            return Measurement(
-                court.domain,
-                cartoteka.id,
-                None,
-                "throttled",
-                f"счётчик ко всей картотеке не дался; кусок {window} — {state.verdict.value}",
-                raw=raw,
-            )
-        total += state.total
+        if state.verdict is Verdict.LISTING and state.total is not None:
+            total += state.total
+            continue
+
+        if state.verdict is Verdict.THROTTLED and span > _MIN_SPAN_DAYS:
+            pending.extend(reversed(split_in_two(chunk_from, chunk_to)))
+            continue
+
+        if state.verdict is Verdict.THROTTLED:
+            # Не дался даже месяц — значит дело уже не в цене запроса,
+            # и просьбу отойти надо исполнить.
+            client.back_off(court.domain, client.settings.cooldown_seconds, "суд придержал адрес")
+        return Measurement(
+            court.domain,
+            cartoteka.id,
+            None,
+            "throttled",
+            f"счётчик ко всей картотеке не дался; кусок {window} — {state.verdict.value}",
+            raw=raw,
+        )
 
     return Measurement(
         court.domain,
         cartoteka.id,
         total,
         "measured",
-        f"счётчик ко всей картотеке суду не дался; сумма {len(chunks)} кусков "
+        f"счётчик ко всей картотеке суду не дался; сумма {probes} кусков "
         f"по оси поступления с {CORPUS_START:%d.%m.%Y}",
         raw=raw,
     )
+
+
+def url_for(court: Court, cartoteka: Cartoteka, date_from: date, date_to: date) -> str:
+    """Счётчик за окно по оси поступления — она одна годится для сложения."""
+    return listing_url(court, cartoteka, DateAxis.ENTRY, date_from, date_to)
 
 
 def measure_all(

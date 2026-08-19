@@ -118,5 +118,6 @@ python -m harvester acts --court 5kas.sudrf.ru
 Раскатка судов: 2 КСОЮ (без капчи) → 3 КСОЮ (с капчей, боевая проверка
 модели) → остальные, включая `vkas.sudrf.ru`.
 
+План разработки — [`docs/roadmap.md`](docs/roadmap.md).
 Модель капчи — [`docs/captcha-corpus.md`](docs/captcha-corpus.md).
 Правила доступа и 262-ФЗ — [`docs/ethics.md`](docs/ethics.md).

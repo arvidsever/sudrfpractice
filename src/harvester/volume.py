@@ -20,10 +20,12 @@ from sqlalchemy.dialects.postgresql import insert
 from .client import open_client
 from .config import Settings
 from .config import settings as default_settings
+from .db import store
 from .db.schema import cartoteka_volume
 from .directories import Cartoteka, Court, cartoteki, courts
 from .guards import Verdict, classify
 from .http import CourtClient
+from .raw import RawRecord, RawStore
 from .urls import whole_cartoteka_url
 
 log = logging.getLogger("harvester.volume")
@@ -36,9 +38,17 @@ class Measurement:
     total_cases: int | None
     status: str
     note: str | None = None
+    #: Провенанс сохранённой страницы. `None`, если замеряли без хранилища
+    #: (тесты) или до суда дело не дошло.
+    raw: RawRecord | None = None
 
 
-def measure_pair(client: CourtClient, court: Court, cartoteka: Cartoteka) -> Measurement:
+def measure_pair(
+    client: CourtClient,
+    court: Court,
+    cartoteka: Cartoteka,
+    raw_store: RawStore | None = None,
+) -> Measurement:
     url = whole_cartoteka_url(court, cartoteka)
     try:
         response = client.get_passing_captcha(url)
@@ -47,18 +57,37 @@ def measure_pair(client: CourtClient, court: Court, cartoteka: Cartoteka) -> Mea
             court.domain, cartoteka.id, None, "failed", f"{type(exc).__name__}: {exc}"
         )
 
+    # Сырьё замера хранится по той же причине, что и сырьё обхода: объяснять
+    # непонятный ответ надо, не обращаясь к суду второй раз. Вердикт
+    # `throttled` ставится по фразе, которую ищут по всей странице, — заглушка
+    # и обычная страница с той же фразой в вёрстке по одному лишь статусу
+    # неразличимы, а разбираться постфактум без сохранённых байтов нечем.
+    raw = (
+        raw_store.save(
+            response.content,
+            url=url,
+            court_domain=court.domain,
+            http_status=response.status_code,
+            content_kind="volume",
+        )
+        if raw_store is not None
+        else None
+    )
+
     state = classify(response.text)
     if state.verdict is Verdict.LISTING and state.total is not None:
-        return Measurement(court.domain, cartoteka.id, state.total, "measured")
+        return Measurement(court.domain, cartoteka.id, state.total, "measured", raw=raw)
     if state.verdict is Verdict.THROTTLED:
-        return Measurement(court.domain, cartoteka.id, None, "throttled", "суд придержал адрес")
+        return Measurement(
+            court.domain, cartoteka.id, None, "throttled", "суд придержал адрес", raw=raw
+        )
     if state.verdict is Verdict.NO_DATA:
         # Пустая картотека и кривой запрос по тексту неотличимы (§5 грамматики),
         # поэтому это не «нуль дел», а «нечего засчитывать».
         return Measurement(
-            court.domain, cartoteka.id, None, "empty", "выдача пуста либо запрос кривой"
+            court.domain, cartoteka.id, None, "empty", "выдача пуста либо запрос кривой", raw=raw
         )
-    return Measurement(court.domain, cartoteka.id, None, "failed", state.verdict.value)
+    return Measurement(court.domain, cartoteka.id, None, "failed", state.verdict.value, raw=raw)
 
 
 def measure_all(
@@ -95,11 +124,16 @@ def measure_all(
             }
         targets = [t for t in targets if (t[0].domain, t[1].id) not in done]
 
+    raw_store = RawStore(settings.raw_root)
+
     results: list[Measurement] = []
     for court, cartoteka in targets:
         with open_client(court, cartoteka, settings=settings, bulk=bulk) as client:
-            measurement = measure_pair(client, court, cartoteka)
+            measurement = measure_pair(client, court, cartoteka, raw_store)
             results.append(measurement)
+            if measurement.raw is not None:
+                with engine.begin() as connection:
+                    store.save_raw_page(connection, measurement.raw)
             log.info(
                 "%s/%s: %s %s",
                 measurement.court_domain,

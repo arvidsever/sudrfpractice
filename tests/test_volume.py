@@ -78,3 +78,20 @@ def test_volume_url_carries_no_date_filter() -> None:
 
     with pytest.raises(ValueError):
         whole_cartoteka_url(COURT, CARTOTEKA, page=0)
+
+
+def test_measurement_keeps_the_page_it_judged(listing_acts: str, tmp_path) -> None:
+    """Замер обращается к суду — значит обязан оставить сырьё.
+
+    Вердикт `throttled` ставится по фразе, которую ищут по всей странице.
+    Без сохранённых байтов заглушку и обычную страницу с той же фразой
+    в вёрстке нельзя различить иначе, чем ещё одним запросом к суду.
+    """
+    from harvester.raw import RawStore
+
+    store = RawStore(tmp_path)
+    result = measure_pair(_Client(listing_acts), COURT, CARTOTEKA, store)
+
+    assert result.raw is not None
+    assert result.raw.content_kind == "volume"
+    assert (tmp_path / result.raw.path).exists()

@@ -1,0 +1,62 @@
+{
+  "cartoteki" : [
+    {
+      "case_number_field" : "u33_case__CASE_NUMBERSS",
+      "delo_id" : "4",
+      "delo_table" : "u33_case",
+      "id" : "u3",
+      "name_field" : "U33_DEFENDANT__NAMESS",
+      "new" : "2450001",
+      "prefixes" : [
+        "77",
+        "7у"
+      ],
+      "title" : "Уголовное, кассация (КСОЮ)",
+      "uid_field" : "u33_case__JUDICIAL_UIDSS"
+    },
+    {
+      "case_number_field" : "g33_case__CASE_NUMBERSS",
+      "delo_id" : "5",
+      "delo_table" : "g33_case",
+      "id" : "g3",
+      "name_field" : "G33_PARTS__NAMESS",
+      "new" : "2800001",
+      "prefixes" : [
+        "88",
+        "8г"
+      ],
+      "title" : "Гражданское, кассация (КСОЮ)",
+      "uid_field" : "g33_case__JUDICIAL_UIDSS"
+    },
+    {
+      "case_number_field" : "p33_case__CASE_NUMBERSS",
+      "delo_id" : "43",
+      "delo_table" : "p33_case",
+      "id" : "p3",
+      "name_field" : "P33_PARTS__NAMESS",
+      "new" : "0",
+      "prefixes" : [
+        "88а",
+        "8а"
+      ],
+      "title" : "КАС, кассация (КСОЮ)",
+      "uid_field" : "p33_case__JUDICIAL_UIDSS"
+    },
+    {
+      "case_number_field" : "adm33_case__CASE_NUMBERSS",
+      "delo_id" : "2550001",
+      "delo_table" : "adm33_case",
+      "id" : "adm3",
+      "name_field" : "ADM33_PARTS__NAMESS",
+      "new" : "0",
+      "prefixes" : [
+        "16",
+        "п16"
+      ],
+      "title" : "АП: на вступившие в силу (КСОЮ)",
+      "uid_field" : "adm33_case__JUDICIAL_UIDSS"
+    }
+  ],
+  "level" : "cassation",
+  "source" : "SudrfKit/Cartoteka.swift"
+}

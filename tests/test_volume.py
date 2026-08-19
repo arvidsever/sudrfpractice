@@ -1,0 +1,80 @@
+"""Замер объёма картотек.
+
+Замер обязан честно различать «столько-то дел» и «не смогли посмотреть».
+Ноль в этой таблице означал бы пустую картотеку, а капча и блокировка —
+это не ноль, это отсутствие ответа.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from harvester.directories import cartoteka, court
+from harvester.urls import whole_cartoteka_url
+from harvester.volume import measure_pair
+
+
+class _Client:
+    def __init__(self, html: str | None = None, error: Exception | None = None):
+        self.html, self.error, self.urls = html, error, []
+
+    def get_passing_captcha(self, url: str, attempts: int = 3):
+        """Замер идёт тем же путём, что обход: на капча-судах через решатель."""
+        return self.get(url)
+
+    def get(self, url: str):
+        self.urls.append(url)
+        if self.error is not None:
+            raise self.error
+        from harvester.http import Response
+
+        return Response(url=url, status_code=200, content=self.html.encode("cp1251", "replace"))
+
+
+COURT = court("2kas.sudrf.ru")
+CARTOTEKA = cartoteka("g3")
+
+
+def test_counter_becomes_the_volume(listing_acts: str) -> None:
+    result = measure_pair(_Client(listing_acts), COURT, CARTOTEKA)
+    assert (result.status, result.total_cases) == ("measured", 530)
+
+
+def test_captcha_is_not_zero(listing_captcha_gate: str) -> None:
+    """Капча-суд не измерен, а не пуст. Ноль здесь стал бы ложью в плане обхода."""
+    result = measure_pair(_Client(listing_captcha_gate), COURT, CARTOTEKA)
+    assert result.status == "failed"
+    assert result.total_cases is None
+
+
+def test_throttling_is_marked_separately(temporarily_unavailable: str) -> None:
+    """Придержанный суд можно перемерить позже — это отличается от отказа."""
+    result = measure_pair(_Client(temporarily_unavailable), COURT, CARTOTEKA)
+    assert result.status == "throttled"
+    assert result.total_cases is None
+
+
+def test_empty_answer_is_not_counted(listing_bad_new: str) -> None:
+    """Пустая картотека и кривой запрос по тексту неотличимы, поэтому это
+    не «нуль дел», а «нечего засчитывать»."""
+    result = measure_pair(_Client(listing_bad_new), COURT, CARTOTEKA)
+    assert result.status == "empty"
+    assert result.total_cases is None
+
+
+def test_network_failure_keeps_the_pair_unmeasured() -> None:
+    result = measure_pair(_Client(error=RuntimeError("сеть")), COURT, CARTOTEKA)
+    assert result.status == "failed"
+    assert "RuntimeError" in (result.note or "")
+
+
+def test_volume_url_carries_no_date_filter() -> None:
+    """Счётчик по всей картотеке даёт только запрос без окна."""
+    url = whole_cartoteka_url(COURT, CARTOTEKA)
+    assert "DATE1D" not in url
+    assert "PUBL_DATE" not in url
+    # Длинный delo_id обязателен и здесь: иначе счётчик тот же, но выдача чужая.
+    assert "&delo_id=2800001&" in url
+
+    with pytest.raises(ValueError):
+        whole_cartoteka_url(COURT, CARTOTEKA, page=0)

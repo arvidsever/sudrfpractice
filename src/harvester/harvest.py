@@ -109,6 +109,15 @@ def harvest_listing(
 
                 html = response.text
                 state = classify(html)
+                if state.verdict is Verdict.THROTTLED:
+                    status = "throttled"
+                    note = (
+                        f"страница {page}: суд ответил «Информация временно недоступна». "
+                        "Обход остановлен; продолжать после паузы, а не сразу."
+                    )
+                    log.warning(note)
+                    break
+
                 if state.verdict is not Verdict.LISTING:
                     status = "empty" if state.verdict is Verdict.NO_DATA else "failed"
                     note = (

@@ -6,6 +6,8 @@
 не обнаружено» и не дают таблицы. Поэтому:
 
 * выдачей считается ТОЛЬКО ответ с `table#tablcont`;
+* «Информация временно недоступна» — отдельный вердикт: суд придержал наш
+  адрес, и это повод остановиться, а не считать, что дел нет;
 * `NO_DATA` — заведомо неоднозначный вердикт, а не «дел нет». Разрешает
   его лишь контрольный запрос с заведомо непустым окном;
 * число разобранных строк сверяется со счётчиком «Всего по запросу найдено».
@@ -27,6 +29,7 @@ _RANGE_RE = re.compile(r"На странице записи с\s*(\d+)\s+по\s*
 
 _CAPTCHA_MARKER = "проверочный код"
 _NO_DATA_MARKER = "Данных по запросу не обнаружено"
+_THROTTLED_MARKER = "Информация временно недоступна"
 
 
 class Verdict(Enum):
@@ -40,6 +43,9 @@ class Verdict(Enum):
     #: Суд с капчей не получил пары `captcha`+`captchaid` либо она не подошла.
     #: Отсутствующий код сервер трактует как неверный и говорит об этом прямо.
     CAPTCHA_GATE = "captcha_gate"
+    #: «Информация временно недоступна» — суд придержал наш адрес.
+    #: Не ошибка запроса и не пустота: продолжать обход нельзя, надо отступить.
+    THROTTLED = "throttled"
     #: Ответ вообще не похож ни на одно из известных состояний — новая вёрстка,
     #: страница WAF, ошибка платформы. Разбирать нельзя, нужна новая фикстура.
     UNKNOWN = "unknown"
@@ -81,6 +87,8 @@ def classify(html: str) -> PageState:
     error = tree.css_first("#error")
     error_text = error.text() if error is not None else ""
 
+    if _THROTTLED_MARKER in html:
+        return PageState(verdict=Verdict.THROTTLED)
     if _CAPTCHA_MARKER in error_text or _CAPTCHA_MARKER in html:
         return PageState(verdict=Verdict.CAPTCHA_GATE)
     if _NO_DATA_MARKER in error_text or _NO_DATA_MARKER in html:

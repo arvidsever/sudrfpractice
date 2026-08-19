@@ -53,6 +53,17 @@ def listing_captcha_gate() -> str:
 
 
 @pytest.fixture(scope="session")
+def temporarily_unavailable() -> str:
+    """Антибрутфорс-ответ суда: «Информация временно недоступна».
+
+    Снято 19.08.2026 со 2 КСОЮ после того, как за полтора часа с него было
+    выбрано больше сотни запросов — в том числе диагностических, мимо клиента
+    с дросселем. Отступать надо раньше, чем суд об этом попросит.
+    """
+    return fixture("ksoyu_temporarily_unavailable")
+
+
+@pytest.fixture(scope="session")
 def act_doc() -> str:
     return fixture("ksoyu_act_doc")
 

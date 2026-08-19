@@ -76,3 +76,15 @@ def test_completeness_rejects_short_page() -> None:
 def test_completeness_rejects_listing_without_counter() -> None:
     with pytest.raises(CompletenessError, match="нет счётчика"):
         check_page_completeness(PageState(Verdict.LISTING, total=None), parsed_rows=25, page=1)
+
+
+def test_throttling_is_its_own_verdict(temporarily_unavailable: str) -> None:
+    """«Информация временно недоступна» — не пустота и не сбой запроса.
+
+    Без отдельного вердикта такой ответ попадал в `UNKNOWN`, а обход
+    продолжал стучаться в суд, который уже попросил перестать.
+    """
+    state = classify(temporarily_unavailable)
+    assert state.verdict is Verdict.THROTTLED
+    assert not state.is_listing
+    assert not state.needs_confirmation

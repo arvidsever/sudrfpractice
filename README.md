@@ -93,7 +93,20 @@ python -m harvester url --court 2kas.sudrf.ru --cartoteka g3 \
 pytest && ruff check
 ```
 
-Обход окна и сбор текстов:
+Полный индекс по очереди заданий:
+
+```bash
+python -m harvester measure     # объём каждой пары суд × картотека
+python -m harvester plan        # нарезать глубину на месячные окна
+python -m harvester run         # обойти очередь, суды параллельно
+python -m harvester queue       # что осталось
+```
+
+Прогон рассчитан на то, что его прервут: незакрытые окна возвращаются
+в очередь при следующем запуске, а суд, попросивший отступить, ставится
+на паузу и пропускается.
+
+Обход одного окна и сбор текстов:
 
 ```bash
 python -m harvester harvest --court 5kas.sudrf.ru --cartoteka g3 \

@@ -93,3 +93,31 @@ def test_throttle_marker_is_found_in_cp1251_bytes() -> None:
 
     assert _looks_throttled("Информация временно недоступна".encode("cp1251"))
     assert not _looks_throttled("Всего по запросу найдено — 530".encode("cp1251"))
+
+
+def test_throttle_survives_a_new_client() -> None:
+    """Клиент создаётся на каждое окно обхода. Если бы дроссель жил
+    в экземпляре, соседние окна одного суда стреляли бы подряд без паузы."""
+    import time
+
+    from harvester.http import _LAST_REQUEST, CourtClient
+
+    _LAST_REQUEST.clear()
+    first = CourtClient(bulk=False)
+    try:
+        first._throttle("2kas.sudrf.ru")
+        stamp = _LAST_REQUEST["2kas.sudrf.ru"]
+
+        second = CourtClient(bulk=False)
+        try:
+            started = time.monotonic()
+            second._throttle("2kas.sudrf.ru")
+            waited = time.monotonic() - started
+        finally:
+            second.close()
+
+        assert waited >= 2.5, "новый клиент обязан дождаться паузы предыдущего"
+        assert _LAST_REQUEST["2kas.sudrf.ru"] > stamp
+    finally:
+        _LAST_REQUEST.clear()
+        first.close()

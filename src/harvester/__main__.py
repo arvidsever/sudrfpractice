@@ -65,6 +65,13 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("queue", help="показать состояние очереди")
 
+    runner = sub.add_parser("run", help="прогнать очередь: собрать перечни по окнам")
+    runner.add_argument("--court", action="append", help="ограничить суды, можно повторять")
+    runner.add_argument("--limit", type=int, metavar="N", help="не больше N окон на суд")
+    runner.add_argument(
+        "--pilot", action="store_true", help="наблюдаемый прогон: без требования ночного окна"
+    )
+
     acts = sub.add_parser("acts", help="скачать тексты актов, у которых их ещё нет")
     acts.add_argument("--court", required=True, help="домен суда, напр. 5kas.sudrf.ru")
     acts.add_argument("--limit", type=int, help="взять не больше N актов за прогон")
@@ -175,6 +182,23 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         for row in rows:
             print(f"{row.status:<10} {row[1]:>6}  {row[2]} … {row[3]}")
+        return 0
+
+    if args.command == "run":
+        import logging
+
+        from .run import run_queue
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        totals = run_queue(
+            only_courts=args.court,
+            bulk=not args.pilot,
+            limit_per_court=args.limit,
+        )
+        print(
+            f"окон пройдено: {totals.windows}, дел {totals.cases}, ссылок на акты "
+            f"{totals.acts}, неудач {totals.failed}, придержаний {totals.throttled}"
+        )
         return 0
 
     if args.command == "acts":

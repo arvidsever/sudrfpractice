@@ -8,8 +8,8 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -92,8 +92,12 @@ class CourtClient:
         #: следующая задача не должна начинать с того, чем предыдущая
         #: только что заслужила отказ.
         self._cooldown_until: dict[str, float] = _COOLDOWNS
-        self._last_request: dict[str, float] = defaultdict(float)
-        self._requests_today: dict[str, int] = defaultdict(int)
+        # Состояние по хосту — общее на процесс, а не на экземпляр.
+        # Клиент создаётся на каждое окно обхода, и если бы дроссель жил
+        # в экземпляре, соседние окна одного суда стреляли бы подряд
+        # без паузы: тысяча окон превратилась бы в тысячу таких стыков.
+        self._last_request = _LAST_REQUEST
+        self._requests_today = _REQUESTS_TODAY
         self._client = client or httpx.Client(
             headers={
                 "User-Agent": self.settings.user_agent,
@@ -114,7 +118,7 @@ class CourtClient:
         self._client.close()
 
     def _throttle(self, host: str) -> None:
-        elapsed = time.monotonic() - self._last_request[host]
+        elapsed = time.monotonic() - self._last_request.get(host, 0.0)
         remaining = self.settings.min_delay_seconds - elapsed
         if remaining > 0:
             time.sleep(remaining)
@@ -143,31 +147,32 @@ class CourtClient:
             raise OutsideCollectionWindow(
                 f"массовый обход разрешён только с {start}:00 до {end}:00"
             )
-        if self._requests_today[host] >= self.settings.daily_request_cap:
+        if self._requests_today.get(host, 0) >= self.settings.daily_request_cap:
             raise DailyCapReached(
                 f"{host}: исчерпан дневной потолок ({self.settings.daily_request_cap})"
             )
 
         last_error: Exception | None = None
         for attempt in range(1, self.settings.max_retries + 1):
-            self._throttle(host)
-            self._requests_today[host] += 1
-            try:
-                response = self._client.get(url)
-            except httpx.HTTPError as exc:
-                last_error = exc
-                log.warning("%s: попытка %d не удалась: %s", host, attempt, exc)
-                continue
+            with host_lock(host):
+                self._throttle(host)
+                self._requests_today[host] = self._requests_today.get(host, 0) + 1
+                try:
+                    response = self._client.get(url)
+                except httpx.HTTPError as exc:
+                    last_error = exc
+                    log.warning("%s: попытка %d не удалась: %s", host, attempt, exc)
+                    continue
 
-            log.info("GET %s → %d (%d байт)", url, response.status_code, len(response.content))
-            if _looks_throttled(response.content):
-                self.back_off(host, self.settings.cooldown_seconds, "суд придержал адрес")
-            if response.status_code >= 500:
-                last_error = httpx.HTTPStatusError(
-                    f"{response.status_code}", request=response.request, response=response
-                )
-                continue
-            return Response(url=url, status_code=response.status_code, content=response.content)
+                log.info("GET %s → %d (%d байт)", url, response.status_code, len(response.content))
+                if _looks_throttled(response.content):
+                    self.back_off(host, self.settings.cooldown_seconds, "суд придержал адрес")
+                if response.status_code >= 500:
+                    last_error = httpx.HTTPStatusError(
+                        f"{response.status_code}", request=response.request, response=response
+                    )
+                    continue
+                return Response(url=url, status_code=response.status_code, content=response.content)
 
         raise RuntimeError(f"{url}: не удалось получить ответ") from last_error
 
@@ -236,8 +241,23 @@ def with_captcha_params(url: str, text: str, captchaid: str) -> str:
     return with_captcha(url, text, captchaid)
 
 
-#: Паузы общие на процесс: клиенты создаются на каждую задачу, а суд один.
+#: Всё состояние по хосту — общее на процесс: клиенты создаются на каждую
+#: задачу, а суд один. Дроссель, счётчик и пауза обязаны его переживать.
 _COOLDOWNS: dict[str, float] = {}
+_LAST_REQUEST: dict[str, float] = {}
+_REQUESTS_TODAY: dict[str, int] = {}
+
+#: По замку на суд. Обход идёт в несколько потоков — по одному на суд, —
+#: но замок нужен и на случай, если два потока всё же сойдутся на одном
+#: хосте: дроссель без него превращается в «оба подождали и оба выстрелили».
+_HOST_LOCKS: dict[str, threading.Lock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def host_lock(host: str) -> threading.Lock:
+    with _LOCKS_GUARD:
+        return _HOST_LOCKS.setdefault(host, threading.Lock())
+
 
 _THROTTLE_MARKER = "Информация временно недоступна".encode("cp1251")
 

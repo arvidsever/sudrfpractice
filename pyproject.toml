@@ -13,6 +13,7 @@ dependencies = [
     "alembic>=1.14",
     "zstandard>=0.23",
     "numpy>=2.1",
+    "boto3>=1.35",
 ]
 
 [project.optional-dependencies]

@@ -75,7 +75,7 @@ def test_throttling_is_marked_separately(temporarily_unavailable: str) -> None:
 
     assert result.status == "throttled"
     assert result.total_cases is None
-    assert len(client.urls) == 2, "вторую попытку с окном дат надо сделать"
+    assert len(client.urls) == 2, "первый же кусок не дался — дальше спрашивать незачем"
 
 
 def test_heavy_query_falls_back_to_a_date_window(
@@ -86,16 +86,31 @@ def test_heavy_query_falls_back_to_a_date_window(
     той же страницей, какой просит отступить. Отличить по странице нельзя,
     а переспросить с окном дат — можно. Так закрылась пара `3kas/g3`.
     """
-    client = _SequenceClient(temporarily_unavailable, listing_acts)
+    client = _SequenceClient(temporarily_unavailable, *([listing_acts] * 3))
     result = measure_pair(client, COURT, CARTOTEKA, today=date(2026, 8, 20))
 
-    assert (result.status, result.total_cases) == ("measured", 530)
-    assert "окном" in (result.note or ""), "пометка нужна: число получено иначе, чем у соседей"
+    assert result.status == "measured"
+    assert result.total_cases == 530 * 3, "счётчики кусков складываются"
+    assert "кусков" in (result.note or ""), "пометка нужна: число получено иначе, чем у соседей"
 
-    first, second = client.urls
-    assert "DATE1D" not in first
-    assert "ENTRY_DATE1D=01.10.2019" in second
-    assert "ENTRY_DATE2D=20.08.2026" in second
+    first, *chunks = client.urls
+    assert "DATE1D" not in first, "первым идёт запрос ко всей картотеке"
+    assert len(chunks) == 3
+    assert "ENTRY_DATE1D=01.10.2019" in chunks[0]
+    assert "ENTRY_DATE2D=20.08.2026" in chunks[-1]
+
+
+def test_depth_chunks_do_not_overlap_or_leave_gaps() -> None:
+    """Куски складываются в число, поэтому стык между ними обязан быть ровно
+    один день: нахлёст завысит сумму, дыра занизит — и оба молча."""
+    from harvester.volume import split_depth
+
+    chunks = split_depth(date(2019, 10, 1), date(2026, 8, 20))
+
+    assert chunks[0][0] == date(2019, 10, 1)
+    assert chunks[-1][1] == date(2026, 8, 20)
+    for (_, before), (after, _) in zip(chunks, chunks[1:], strict=False):
+        assert (after - before).days == 1, f"стык {before} → {after} не встык"
 
 
 def test_empty_answer_is_not_counted(listing_bad_new: str) -> None:

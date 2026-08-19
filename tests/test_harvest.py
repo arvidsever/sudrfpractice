@@ -25,7 +25,7 @@ def offline_client(monkeypatch, listing_acts: str):
     """Подменяет сеть фикстурой. Байты — в cp1251, как их отдаёт суд."""
     payload = listing_acts.encode("cp1251", errors="replace")
 
-    def fake_get(self, url: str) -> Response:
+    def fake_get(self, url: str, *, arm_back_off: bool = True) -> Response:
         return Response(url=url, status_code=200, content=payload)
 
     monkeypatch.setattr("harvester.http.CourtClient.get", fake_get)
@@ -130,7 +130,7 @@ def test_missing_act_link_is_unknown_not_denial(
     payload = listing_appeal_delo_id.encode("cp1251", errors="replace")
     monkeypatch.setattr(
         "harvester.http.CourtClient.get",
-        lambda self, url: Response(url=url, status_code=200, content=payload),
+        lambda self, url, **_: Response(url=url, status_code=200, content=payload),
     )
 
     _harvest(db_settings, max_pages=1)
@@ -157,7 +157,7 @@ def test_act_knowledge_is_not_erased_by_the_other_axis(
         payload = html.encode("cp1251", errors="replace")
         monkeypatch.setattr(
             "harvester.http.CourtClient.get",
-            lambda self, url: Response(url=url, status_code=200, content=payload),
+            lambda self, url, **_: Response(url=url, status_code=200, content=payload),
         )
 
     serve(listing_acts)  # ось публикации: ссылки есть
@@ -194,7 +194,7 @@ def test_deferred_window_is_not_recorded_as_short(db_settings, monkeypatch) -> N
     """
     from harvester.http import OutsideCollectionWindow
 
-    def dawn(self, url: str):
+    def dawn(self, url: str, **_):
         raise OutsideCollectionWindow("массовый обход разрешён только с 1:00 до 7:00")
 
     monkeypatch.setattr("harvester.http.CourtClient.get", dawn)

@@ -86,7 +86,10 @@ def measure_pair(
     """
     url = whole_cartoteka_url(court, cartoteka)
     try:
-        response = client.get_passing_captcha(url)
+        # Пауза по этому ответу не взводится: пока не проверен облегчённый
+        # запрос, «временно недоступна» здесь ещё не значит «отойди».
+        # Иначе пауза встаёт раньше второй попытки и та упирается в неё же.
+        response = client.get_passing_captcha(url, arm_back_off=False)
     except Exception as exc:  # noqa: BLE001 — один суд не должен ронять замер
         return Measurement(
             court.domain, cartoteka.id, None, "failed", f"{type(exc).__name__}: {exc}"
@@ -182,6 +185,12 @@ def _measure_by_chunks(
 
         state = classify(response.text)
         if state.verdict is not Verdict.LISTING or state.total is None:
+            if state.verdict is Verdict.THROTTLED:
+                # Не дался и облегчённый запрос — значит дело не в цене,
+                # и просьбу отойти надо исполнить.
+                client.back_off(
+                    court.domain, client.settings.cooldown_seconds, "суд придержал адрес"
+                )
             return Measurement(
                 court.domain,
                 cartoteka.id,

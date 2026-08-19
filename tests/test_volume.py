@@ -11,6 +11,7 @@ from datetime import date
 
 import pytest
 
+from harvester.config import settings as default_settings
 from harvester.directories import cartoteka, court
 from harvester.urls import whole_cartoteka_url
 from harvester.volume import measure_pair
@@ -19,10 +20,15 @@ from harvester.volume import measure_pair
 class _Client:
     def __init__(self, html: str | None = None, error: Exception | None = None):
         self.html, self.error, self.urls = html, error, []
+        self.backed_off: list[str] = []
+        self.settings = default_settings
 
-    def get_passing_captcha(self, url: str, attempts: int = 3):
+    def get_passing_captcha(self, url: str, attempts: int = 3, *, arm_back_off: bool = True):
         """Замер идёт тем же путём, что обход: на капча-судах через решатель."""
         return self.get(url)
+
+    def back_off(self, host: str, seconds: float, reason: str) -> None:
+        self.backed_off.append(host)
 
     def get(self, url: str):
         self.urls.append(url)
@@ -76,6 +82,9 @@ def test_throttling_is_marked_separately(temporarily_unavailable: str) -> None:
     assert result.status == "throttled"
     assert result.total_cases is None
     assert len(client.urls) == 2, "первый же кусок не дался — дальше спрашивать незачем"
+    assert client.backed_off == [COURT.domain], (
+        "не дался и облегчённый запрос — вот теперь просьбу отойти надо исполнить"
+    )
 
 
 def test_heavy_query_falls_back_to_a_date_window(
@@ -92,6 +101,7 @@ def test_heavy_query_falls_back_to_a_date_window(
     assert result.status == "measured"
     assert result.total_cases == 530 * 3, "счётчики кусков складываются"
     assert "кусков" in (result.note or ""), "пометка нужна: число получено иначе, чем у соседей"
+    assert client.backed_off == [], "дорогой запрос не повод вставать на паузу"
 
     first, *chunks = client.urls
     assert "DATE1D" not in first, "первым идёт запрос ко всей картотеке"

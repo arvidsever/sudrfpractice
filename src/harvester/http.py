@@ -137,7 +137,17 @@ class CourtClient:
         self._cooldown_until[host] = time.monotonic() + seconds
         log.warning("%s: пауза %.0f мин — %s", host, seconds / 60, reason)
 
-    def get(self, url: str) -> Response:
+    def get(self, url: str, *, arm_back_off: bool = True) -> Response:
+        """Запрос через дроссель.
+
+        `arm_back_off=False` снимает автоматическое отступление по ответу
+        «Информация временно недоступна». Нужно там, где этот ответ ещё
+        не означает просьбы отойти: счётчик ко всей картотеке — самый
+        дорогой запрос из возможных, и на большой картотеке сервер суда
+        отвечает им же, просто не справившись. Отступать надо, когда
+        не дался и облегчённый запрос, — иначе пауза встаёт раньше, чем
+        мы успели проверить, в чём дело.
+        """
         host = httpx.URL(url).host
         left = self.cooldown_left(host)
         if left > 0:
@@ -165,7 +175,7 @@ class CourtClient:
                     continue
 
                 log.info("GET %s → %d (%d байт)", url, response.status_code, len(response.content))
-                if _looks_throttled(response.content):
+                if arm_back_off and _looks_throttled(response.content):
                     self.back_off(host, self.settings.cooldown_seconds, "суд придержал адрес")
                 if response.status_code >= 500:
                     last_error = httpx.HTTPStatusError(
@@ -176,7 +186,9 @@ class CourtClient:
 
         raise RuntimeError(f"{url}: не удалось получить ответ") from last_error
 
-    def get_passing_captcha(self, url: str, attempts: int = 3) -> Response:
+    def get_passing_captcha(
+        self, url: str, attempts: int = 3, *, arm_back_off: bool = True
+    ) -> Response:
         """Как `get`, но на капча-судах проходит капчу и повторяет запрос.
 
         Перебираются ПРОЧТЕНИЯ одной картинки, а не картинки: портал держит
@@ -192,7 +204,7 @@ class CourtClient:
         solver = self.captcha
 
         token = solver.cached(host) if solver is not None else None
-        response = self.get(_with_token(url, token) if token else url)
+        response = self.get(_with_token(url, token) if token else url, arm_back_off=arm_back_off)
         if classify(response.text).verdict is not Verdict.CAPTCHA_GATE:
             return response
         if solver is None or self.captcha_form_url is None:
@@ -208,7 +220,7 @@ class CourtClient:
         readings = solver.read(challenge, limit=attempts)
         for number, (text, likelihood) in enumerate(readings, start=1):
             candidate = with_captcha_params(url, text, challenge.captchaid)
-            response = self.get(candidate)
+            response = self.get(candidate, arm_back_off=arm_back_off)
             if classify(response.text).verdict is not Verdict.CAPTCHA_GATE:
                 solver.accept(host, challenge, text)
                 log.info(

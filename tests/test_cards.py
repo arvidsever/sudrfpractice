@@ -32,7 +32,7 @@ def _serve(monkeypatch, html: str) -> None:
     payload = html.encode("cp1251", errors="replace")
     monkeypatch.setattr(
         "harvester.http.CourtClient.get",
-        lambda self, url: Response(url=url, status_code=200, content=payload),
+        lambda self, url, **_: Response(url=url, status_code=200, content=payload),
     )
 
 

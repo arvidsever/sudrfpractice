@@ -97,19 +97,19 @@ def test_heavy_query_falls_back_to_a_date_window(
     той же страницей, какой просит отступить. Отличить по странице нельзя,
     а переспросить с окном дат — можно. Так закрылась пара `3kas/g3`.
     """
-    client = _SequenceClient(temporarily_unavailable, listing_acts, listing_acts)
+    client = _SequenceClient(temporarily_unavailable, listing_acts)
     result = measure_pair(client, COURT, CARTOTEKA, today=date(2026, 8, 20))
 
     assert result.status == "measured"
-    assert result.total_cases == 530 * 2, "счётчики кусков складываются"
+    assert result.total_cases == 530 * 8, "счётчики восьми лет складываются"
     assert "кусков" in (result.note or ""), "пометка нужна: число получено иначе, чем у соседей"
     assert client.backed_off == [], "дорогой запрос не повод вставать на паузу"
 
     first, *chunks = client.urls
     assert "DATE1D" not in first, "первым идёт запрос ко всей картотеке"
-    assert len(chunks) == 2, "хватило половин — дробить дальше незачем"
-    assert "ENTRY_DATE1D=01.10.2019" in chunks[0]
-    assert "ENTRY_DATE2D=20.08.2026" in chunks[-1]
+    assert len(chunks) == 8, "глубина 2019–2026 — восемь календарных лет"
+    assert "ENTRY_DATE1D=01.10.2019" in chunks[0], "первый год начинается с начала глубины"
+    assert "ENTRY_DATE2D=20.08.2026" in chunks[-1], "последний кончается сегодняшним днём"
 
 
 def test_chunks_split_further_until_the_court_copes(
@@ -121,15 +121,13 @@ def test_chunks_split_further_until_the_court_copes(
     """
     client = _SequenceClient(
         temporarily_unavailable,  # вся картотека
-        temporarily_unavailable,  # первая половина — тоже не далась
-        listing_acts,  # её половинки
-        listing_acts,
-        listing_acts,  # вторая половина глубины
+        temporarily_unavailable,  # 2019 год — тоже не дался
+        listing_acts,  # дальше идут его половинки и остальные годы
     )
     result = measure_pair(client, COURT, CARTOTEKA, today=date(2026, 8, 20))
 
     assert result.status == "measured"
-    assert result.total_cases == 530 * 3
+    assert result.total_cases == 530 * 9, "семь целых лет, два куска несдавшегося и 2026-й"
     assert client.backed_off == []
 
 
@@ -148,15 +146,19 @@ def test_a_month_that_fails_is_not_a_query_cost_problem(temporarily_unavailable:
     assert len(client.urls) <= 10, f"дробление не остановилось: {len(client.urls)} запросов"
 
 
-def test_halves_do_not_overlap_or_leave_gaps() -> None:
+def test_chunks_do_not_overlap_or_leave_gaps() -> None:
     """Куски складываются в число, поэтому стык обязан быть ровно один день:
     нахлёст завысит сумму, дыра занизит — и оба молча."""
-    from harvester.volume import split_in_two
+    from harvester.volume import split_by_years, split_in_two
 
-    (a_from, a_to), (b_from, b_to) = split_in_two(date(2019, 10, 1), date(2026, 8, 20))
+    years = split_by_years(date(2019, 10, 1), date(2026, 8, 20))
+    assert years[0][0] == date(2019, 10, 1), "глубина начинается не с января"
+    assert years[-1][1] == date(2026, 8, 20), "последний год обрывается сегодня"
+    for (_, before), (after, _) in zip(years, years[1:], strict=False):
+        assert (after - before).days == 1, f"стык {before} → {after} не встык"
 
-    assert a_from == date(2019, 10, 1)
-    assert b_to == date(2026, 8, 20)
+    (a_from, a_to), (b_from, b_to) = split_in_two(date(2020, 1, 1), date(2020, 12, 31))
+    assert (a_from, b_to) == (date(2020, 1, 1), date(2020, 12, 31))
     assert (b_from - a_to).days == 1, "половины должны сходиться встык"
 
 

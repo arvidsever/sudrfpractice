@@ -132,6 +132,22 @@ def measure_pair(
     return Measurement(court.domain, cartoteka.id, None, "failed", state.verdict.value, raw=raw)
 
 
+def split_by_years(start: date, end: date) -> list[tuple[date, date]]:
+    """Порезать глубину по календарным годам.
+
+    Год — разумное первое приближение: он заведомо легче всей картотеки
+    и заведомо тяжелее месяца, а границы читаются человеком. Крайние годы
+    неполные, и это правильно: глубина начинается 01.10.2019.
+    """
+    chunks = []
+    year_from = start
+    while year_from <= end:
+        year_to = min(date(year_from.year, 12, 31), end)
+        chunks.append((year_from, year_to))
+        year_from = date(year_from.year + 1, 1, 1)
+    return chunks
+
+
 def split_in_two(start: date, end: date) -> list[tuple[date, date]]:
     """Разделить отрезок пополам встык, без нахлёста и без дыры."""
     days = (end - start).days
@@ -155,16 +171,16 @@ def _measure_by_chunks(
     На сколько частей резать — заранее неизвестно: у 1 КСОЮ счётчик
     по всей гражданской картотеке (236 445 дел) отдаётся сразу, а у 3 КСОЮ
     не отдаётся даже треть глубины. Дело не в размере картотеки, а в том,
-    сколько тянет конкретный сервер. Поэтому кусок, который не дался,
-    делится пополам, и так до месяца — ниже дробить бессмысленно, месяц
-    3 КСОЮ считает.
+    сколько тянет конкретный сервер. Поэтому глубина сперва режется
+    по календарным годам, а год, который не дался, делится пополам,
+    и так до месяца — ниже дробить бессмысленно, месяц 3 КСОЮ считает.
 
     Складывать куски законно именно по оси ПОСТУПЛЕНИЯ: дата поступления
     у дела одна, куски встык и ничего не теряют на стыках. По оси
     публикации сумма была бы неверной — у дела может быть несколько
     опубликованных актов.
     """
-    pending = list(reversed(split_in_two(CORPUS_START, today or date.today())))
+    pending = list(reversed(split_by_years(CORPUS_START, today or date.today())))
     total, probes, deepest = 0, 0, 0
     raw = first_raw
 

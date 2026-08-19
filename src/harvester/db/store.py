@@ -66,13 +66,21 @@ def save_case(connection: Connection, row: CaseRow, *, court_domain: str, cartot
 
     if row.case_uid:
         statement = insert(case).values(**values)
+        updates = {
+            key: statement.excluded[key]
+            for key in values
+            if key not in ("court_domain", "case_uid", "act_published")
+        }
+        # Знание о том, что акт опубликован, только прибавляется.
+        # Одно и то же дело приходит по двум осям: по публикации — со
+        # ссылкой на текст, по поступлению — чаще без неё. Простая замена
+        # стирала бы «акт есть» на «не знаем» в зависимости от того, какой
+        # проход отработал последним.
+        updates["act_published"] = func.coalesce(
+            statement.excluded.act_published, case.c.act_published
+        )
         statement = statement.on_conflict_do_update(
-            index_elements=["court_domain", "case_uid"],
-            set_={
-                key: statement.excluded[key]
-                for key in values
-                if key not in ("court_domain", "case_uid")
-            },
+            index_elements=["court_domain", "case_uid"], set_=updates
         ).returning(case.c.id)
         return connection.execute(statement).scalar_one()
 
@@ -86,7 +94,10 @@ def save_case(connection: Connection, row: CaseRow, *, court_domain: str, cartot
         )
     ).scalar_one_or_none()
     if existing is not None:
-        connection.execute(update(case).where(case.c.id == existing).values(**values))
+        without_downgrade = dict(values)
+        if values["act_published"] is None:
+            without_downgrade.pop("act_published")
+        connection.execute(update(case).where(case.c.id == existing).values(**without_downgrade))
         return existing
     return connection.execute(insert(case).values(**values).returning(case.c.id)).scalar_one()
 

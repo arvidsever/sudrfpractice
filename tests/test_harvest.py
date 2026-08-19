@@ -142,3 +142,43 @@ def test_missing_act_link_is_unknown_not_denial(
 
     assert len(published) == 25
     assert all(value is None for value in published)
+
+
+def test_act_knowledge_is_not_erased_by_the_other_axis(
+    db_settings, monkeypatch, listing_acts: str, listing_appeal_delo_id: str
+) -> None:
+    """Одно дело приходит по двум осям: по публикации — со ссылкой на текст,
+    по поступлению — чаще без неё. Простая замена стирала бы «акт есть»
+    на «не знаем» в зависимости от того, какой проход отработал последним.
+    """
+    uid = "3128af6a-aafd-43ab-a873-18c4f46b860e"
+
+    def serve(html: str) -> None:
+        payload = html.encode("cp1251", errors="replace")
+        monkeypatch.setattr(
+            "harvester.http.CourtClient.get",
+            lambda self, url: Response(url=url, status_code=200, content=payload),
+        )
+
+    serve(listing_acts)  # ось публикации: ссылки есть
+    _harvest(db_settings, max_pages=1)
+
+    engine = create_engine(db_settings.database_url)
+    with engine.connect() as connection:
+        assert (
+            connection.execute(
+                select(case.c.act_published).where(case.c.case_uid == uid)
+            ).scalar_one()
+            is True
+        )
+
+    serve(listing_appeal_delo_id)  # тот же набор дел, но без ссылок
+    _harvest(db_settings, max_pages=1)
+
+    with engine.connect() as connection:
+        after = connection.execute(
+            select(case.c.act_published).where(case.c.case_uid == uid)
+        ).scalar_one()
+    engine.dispose()
+
+    assert after is True, "знание об акте пропало при обходе по другой оси"

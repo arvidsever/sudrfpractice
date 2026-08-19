@@ -63,6 +63,13 @@ def main(argv: list[str] | None = None) -> int:
     plan_cmd.add_argument("--to", dest="end", help="дд.мм.гггг, по умолчанию сегодня")
     plan_cmd.add_argument("--court", action="append")
     plan_cmd.add_argument("--cartoteka", action="append")
+    plan_cmd.add_argument(
+        "--axis",
+        default="publication",
+        choices=[axis.value for axis in DateAxis],
+        help="ось дат: publication — дела с опубликованным актом; "
+        "entry — все дела, включая нерассмотренные",
+    )
 
     sub.add_parser("queue", help="показать состояние очереди")
 
@@ -162,6 +169,7 @@ def main(argv: list[str] | None = None) -> int:
         from .plan import CORPUS_START, fill_queue
 
         added, existed = fill_queue(
+            axis=DateAxis(args.axis),
             start=_parse_date(args.start) if args.start else CORPUS_START,
             end=_parse_date(args.end) if args.end else None,
             only_courts=args.court,

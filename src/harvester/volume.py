@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy import create_engine
 from sqlalchemy.dialects.postgresql import insert
@@ -26,7 +27,7 @@ from .directories import Cartoteka, Court, cartoteki, courts
 from .guards import Verdict, classify
 from .http import CourtClient
 from .raw import RawRecord, RawStore
-from .urls import whole_cartoteka_url
+from .urls import DateAxis, listing_url, whole_cartoteka_url
 
 log = logging.getLogger("harvester.volume")
 
@@ -43,12 +44,35 @@ class Measurement:
     raw: RawRecord | None = None
 
 
+#: Начало глубины: кассационные суды ОСЮ работают с 01.10.2019.
+#: Дублирует `plan.CORPUS_START`; импортировать оттуда значило бы завести
+#: зависимость замера от планировщика ради одной константы.
+CORPUS_START = date(2019, 10, 1)
+
+
 def measure_pair(
     client: CourtClient,
     court: Court,
     cartoteka: Cartoteka,
     raw_store: RawStore | None = None,
+    today: date | None = None,
 ) -> Measurement:
+    """Замерить пару. Сперва счётчиком по всей картотеке, а если суд
+    на нём споткнулся — тем же счётчиком, но с фильтром дат на всю глубину.
+
+    Запрос без фильтра дат — самый дорогой из возможных: суд считает всю
+    картотеку разом. У больших картотек сервер этого не выдерживает
+    и отвечает «Информация временно недоступна» — той же страницей, какой
+    он просит отступить, когда придерживает адрес. Отличить одно от другого
+    по странице нельзя, а вот проверить можно: тот же запрос с окном дат
+    суду по силам. Так закрылась пара `3kas/g3`, три раза не дававшаяся
+    без фильтра.
+
+    Числа при этом слегка разные: без фильтра счётчик берёт всё, с окном —
+    только попавшее в него. Поэтому вторая попытка идёт по оси ПОСТУПЛЕНИЯ,
+    которая охватывает и нерассмотренные дела, и её результат помечается
+    в примечании — чтобы никто потом не гадал, отчего пара выбивается.
+    """
     url = whole_cartoteka_url(court, cartoteka)
     try:
         response = client.get_passing_captcha(url)
@@ -78,9 +102,7 @@ def measure_pair(
     if state.verdict is Verdict.LISTING and state.total is not None:
         return Measurement(court.domain, cartoteka.id, state.total, "measured", raw=raw)
     if state.verdict is Verdict.THROTTLED:
-        return Measurement(
-            court.domain, cartoteka.id, None, "throttled", "суд придержал адрес", raw=raw
-        )
+        return _measure_with_dates(client, court, cartoteka, raw_store, today=today, first_raw=raw)
     if state.verdict is Verdict.NO_DATA:
         # Пустая картотека и кривой запрос по тексту неотличимы (§5 грамматики),
         # поэтому это не «нуль дел», а «нечего засчитывать».
@@ -88,6 +110,64 @@ def measure_pair(
             court.domain, cartoteka.id, None, "empty", "выдача пуста либо запрос кривой", raw=raw
         )
     return Measurement(court.domain, cartoteka.id, None, "failed", state.verdict.value, raw=raw)
+
+
+def _measure_with_dates(
+    client: CourtClient,
+    court: Court,
+    cartoteka: Cartoteka,
+    raw_store: RawStore | None,
+    *,
+    today: date | None,
+    first_raw: RawRecord | None,
+) -> Measurement:
+    """Вторая попытка: тот же счётчик, но с окном дат на всю глубину."""
+    window_to = today or date.today()
+    url = listing_url(court, cartoteka, DateAxis.ENTRY, CORPUS_START, window_to)
+    window = f"{CORPUS_START:%d.%m.%Y}–{window_to:%d.%m.%Y}"
+
+    try:
+        response = client.get_passing_captcha(url)
+    except Exception as exc:  # noqa: BLE001 — один суд не должен ронять замер
+        return Measurement(
+            court.domain,
+            cartoteka.id,
+            None,
+            "throttled",
+            f"без фильтра дат суд не ответил; с окном {window} — {type(exc).__name__}: {exc}",
+            raw=first_raw,
+        )
+
+    raw = (
+        raw_store.save(
+            response.content,
+            url=url,
+            court_domain=court.domain,
+            http_status=response.status_code,
+            content_kind="volume",
+        )
+        if raw_store is not None
+        else first_raw
+    )
+
+    state = classify(response.text)
+    if state.verdict is Verdict.LISTING and state.total is not None:
+        return Measurement(
+            court.domain,
+            cartoteka.id,
+            state.total,
+            "measured",
+            f"счётчик ко всей картотеке суду не дался; замерено окном {window} по оси поступления",
+            raw=raw,
+        )
+    return Measurement(
+        court.domain,
+        cartoteka.id,
+        None,
+        "throttled",
+        f"«временно недоступна» и без фильтра дат, и окном {window} — {state.verdict.value}",
+        raw=raw,
+    )
 
 
 def measure_all(

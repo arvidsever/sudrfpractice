@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from harvester.directories import cartoteka, court
@@ -31,6 +33,21 @@ class _Client:
         return Response(url=url, status_code=200, content=self.html.encode("cp1251", "replace"))
 
 
+class _SequenceClient(_Client):
+    """Отдаёт заготовленные страницы по порядку — для проверки второй попытки."""
+
+    def __init__(self, *pages: str):
+        super().__init__(pages[0])
+        self.pages = list(pages)
+
+    def get(self, url: str):
+        self.urls.append(url)
+        from harvester.http import Response
+
+        page = self.pages.pop(0) if self.pages else self.pages
+        return Response(url=url, status_code=200, content=page.encode("cp1251", "replace"))
+
+
 COURT = court("2kas.sudrf.ru")
 CARTOTEKA = cartoteka("g3")
 
@@ -48,10 +65,37 @@ def test_captcha_is_not_zero(listing_captcha_gate: str) -> None:
 
 
 def test_throttling_is_marked_separately(temporarily_unavailable: str) -> None:
-    """Придержанный суд можно перемерить позже — это отличается от отказа."""
-    result = measure_pair(_Client(temporarily_unavailable), COURT, CARTOTEKA)
+    """Придержанный суд можно перемерить позже — это отличается от отказа.
+
+    «Временно недоступна» и на запросе без дат, и на запросе с окном —
+    значит дело не в цене запроса, и пара остаётся незамеренной.
+    """
+    client = _SequenceClient(temporarily_unavailable, temporarily_unavailable)
+    result = measure_pair(client, COURT, CARTOTEKA, today=date(2026, 8, 20))
+
     assert result.status == "throttled"
     assert result.total_cases is None
+    assert len(client.urls) == 2, "вторую попытку с окном дат надо сделать"
+
+
+def test_heavy_query_falls_back_to_a_date_window(
+    temporarily_unavailable: str, listing_acts: str
+) -> None:
+    """Запрос ко всей картотеке — самый дорогой из возможных, и на больших
+    картотеках суд его не тянет: отвечает «Информация временно недоступна»,
+    той же страницей, какой просит отступить. Отличить по странице нельзя,
+    а переспросить с окном дат — можно. Так закрылась пара `3kas/g3`.
+    """
+    client = _SequenceClient(temporarily_unavailable, listing_acts)
+    result = measure_pair(client, COURT, CARTOTEKA, today=date(2026, 8, 20))
+
+    assert (result.status, result.total_cases) == ("measured", 530)
+    assert "окном" in (result.note or ""), "пометка нужна: число получено иначе, чем у соседей"
+
+    first, second = client.urls
+    assert "DATE1D" not in first
+    assert "ENTRY_DATE1D=01.10.2019" in second
+    assert "ENTRY_DATE2D=20.08.2026" in second
 
 
 def test_empty_answer_is_not_counted(listing_bad_new: str) -> None:

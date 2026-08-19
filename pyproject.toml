@@ -1,0 +1,39 @@
+[project]
+name = "sudrfpractice"
+version = "0.1.0"
+description = "Харвестер судебных актов кассационных судов ОСЮ и правовая база по ним"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28",
+    "selectolax>=0.3.27",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "psycopg[binary,pool]>=3.2",
+    "sqlalchemy>=2.0",
+    "alembic>=1.14",
+    "zstandard>=0.23",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/harvester"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

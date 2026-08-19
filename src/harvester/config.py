@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     #: минут и не меняется, поэтому раньше возвращаться бессмысленно.
     captcha_cooldown_seconds: float = 10 * 60
 
+    #: Объектное хранилище: туда уезжает всё, чему не место в публичном
+    #: репозитории — сырьё, веса решателя, дампы базы. Ключи только
+    #: из окружения, в файлы настроек они не попадают.
+    s3_bucket: str = ""
+    s3_endpoint_url: str = ""
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
+
     request_timeout_seconds: float = 30.0
     max_retries: int = 3
 

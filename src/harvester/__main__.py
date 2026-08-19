@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+from pathlib import Path
 
 from .directories import cartoteka, cartoteki, court, courts
 from .urls import DateAxis, listing_url, page_count
@@ -64,6 +65,10 @@ def main(argv: list[str] | None = None) -> int:
     plan_cmd.add_argument("--cartoteka", action="append")
 
     sub.add_parser("queue", help="показать состояние очереди")
+
+    archive = sub.add_parser("archive", help="выгрузить сырьё и веса в объектное хранилище")
+    archive.add_argument("--dry-run", action="store_true", help="показать, но не заливать")
+    archive.add_argument("--model", action="store_true", help="залить и веса решателя капчи")
 
     runner = sub.add_parser("run", help="прогнать очередь: собрать перечни по окнам")
     runner.add_argument("--court", action="append", help="ограничить суды, можно повторять")
@@ -182,6 +187,33 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         for row in rows:
             print(f"{row.status:<10} {row[1]:>6}  {row[2]} … {row[3]}")
+        return 0
+
+    if args.command == "archive":
+        import logging
+
+        from .archive import model_upload, push, raw_uploads
+        from .config import settings
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        if not settings.s3_bucket:
+            print("не задан бакет: HARVESTER_S3_BUCKET (и ключи доступа)")
+            return 1
+
+        from .s3 import S3Store
+
+        store = S3Store()
+        uploads = list(raw_uploads(settings.raw_root))
+        if args.model:
+            weights = model_upload(Path("data/captcha-model.json"))
+            if weights is not None:
+                uploads.append(weights)
+
+        result = push(store, uploads, dry_run=args.dry_run)
+        print(
+            f"выгружено {result.uploaded}, уже было {result.skipped}, "
+            f"объём {result.bytes_sent / 2**20:.1f} МБ"
+        )
         return 0
 
     if args.command == "run":

@@ -51,6 +51,20 @@ def main(argv: list[str] | None = None) -> int:
         "Массовый обход идёт без этого флага и только ночью.",
     )
 
+    measure = sub.add_parser("measure", help="замерить объём картотек (счётчик без дат)")
+    measure.add_argument("--court", action="append", help="ограничить суды, можно повторять")
+    measure.add_argument("--cartoteka", action="append", help="ограничить картотеки")
+    measure.add_argument("--again", action="store_true", help="перемерить уже измеренные пары")
+    measure.add_argument("--pilot", action="store_true", help="без требования ночного окна")
+
+    plan_cmd = sub.add_parser("plan", help="нарезать глубину на окна и наполнить очередь")
+    plan_cmd.add_argument("--from", dest="start", help="дд.мм.гггг, по умолчанию 01.10.2019")
+    plan_cmd.add_argument("--to", dest="end", help="дд.мм.гггг, по умолчанию сегодня")
+    plan_cmd.add_argument("--court", action="append")
+    plan_cmd.add_argument("--cartoteka", action="append")
+
+    sub.add_parser("queue", help="показать состояние очереди")
+
     acts = sub.add_parser("acts", help="скачать тексты актов, у которых их ещё нет")
     acts.add_argument("--court", required=True, help="домен суда, напр. 5kas.sudrf.ru")
     acts.add_argument("--limit", type=int, help="взять не больше N актов за прогон")
@@ -106,6 +120,62 @@ def main(argv: list[str] | None = None) -> int:
         if result.note:
             print(result.note)
         return 0 if result.status in ("complete", "pilot") else 1
+
+    if args.command == "measure":
+        import logging
+
+        from .volume import measure_all
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        results = measure_all(
+            only_courts=args.court,
+            only_cartoteki=args.cartoteka,
+            bulk=not args.pilot,
+            skip_measured=not args.again,
+        )
+        measured = [r for r in results if r.status == "measured"]
+        total = sum(r.total_cases or 0 for r in measured)
+        print(f"замерено пар: {len(measured)} из {len(results)}, дел суммарно: {total}")
+        for r in results:
+            if r.status != "measured":
+                print(f"  {r.court_domain}/{r.cartoteka_id}: {r.status} — {r.note or ''}")
+        return 0
+
+    if args.command == "plan":
+        from .plan import CORPUS_START, fill_queue
+
+        added, existed = fill_queue(
+            start=_parse_date(args.start) if args.start else CORPUS_START,
+            end=_parse_date(args.end) if args.end else None,
+            only_courts=args.court,
+            only_cartoteki=args.cartoteka,
+        )
+        print(f"заданий добавлено: {added}, уже было: {existed}")
+        return 0
+
+    if args.command == "queue":
+        from sqlalchemy import create_engine, func, select
+
+        from .config import settings
+        from .db.schema import harvest_task
+
+        engine = create_engine(settings.database_url)
+        with engine.connect() as connection:
+            rows = connection.execute(
+                select(
+                    harvest_task.c.status,
+                    func.count().label("заданий"),
+                    func.min(harvest_task.c.window_from).label("от"),
+                    func.max(harvest_task.c.window_to).label("до"),
+                ).group_by(harvest_task.c.status)
+            ).all()
+        engine.dispose()
+        if not rows:
+            print("очередь пуста — сперва `plan`")
+            return 0
+        for row in rows:
+            print(f"{row.status:<10} {row[1]:>6}  {row[2]} … {row[3]}")
+        return 0
 
     if args.command == "acts":
         import logging

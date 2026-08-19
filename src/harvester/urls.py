@@ -102,6 +102,29 @@ def listing_url(
     return f"https://{court.domain}/modules.php?{_query(pairs)}"
 
 
+def whole_cartoteka_url(court: Court, cartoteka: Cartoteka, page: int = 1) -> str:
+    """URL перечня БЕЗ фильтра дат — счётчик на нём равен объёму всей картотеки.
+
+    Один такой запрос заменяет оценку по недельному темпу фактом. Для обхода
+    он не годится: выбирать 200 тысяч дел страницами по 25 никто не станет,
+    нужна нарезка по окнам.
+    """
+    if page < 1:
+        raise ValueError("страницы нумеруются с 1")
+    pairs = [
+        ("name", "sud_delo"),
+        ("srv_num", SRV_NUM),
+        ("name_op", "r"),
+        ("page", str(page)),
+        ("delo_id", cartoteka.listing_delo_id),
+        ("case_type", "0"),
+        ("new", cartoteka.new),
+        ("delo_table", cartoteka.delo_table),
+        ("Submit", SUBMIT_VALUE),
+    ]
+    return f"https://{court.domain}/modules.php?{_query(pairs)}"
+
+
 def act_url(court: Court, number: str, delo_id: str, new: str, text_number: int = 1) -> str:
     """URL текста судебного акта.
 

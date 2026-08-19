@@ -138,3 +138,35 @@ harvest_run = Table(
     Column("started_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("finished_at", DateTime(timezone=True), nullable=True),
 )
+
+
+cartoteka_volume = Table(
+    "cartoteka_volume",
+    metadata,
+    Column("court_domain", String(64), ForeignKey("court.domain"), primary_key=True),
+    Column("cartoteka_id", String(16), ForeignKey("cartoteka.id"), primary_key=True),
+    Column("total_cases", Integer, nullable=True, comment="счётчик без фильтра дат"),
+    Column("status", String(16), nullable=False, comment="measured | empty | throttled | failed"),
+    Column("note", Text, nullable=True),
+    Column("measured_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+harvest_task = Table(
+    "harvest_task",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("court_domain", String(64), ForeignKey("court.domain"), nullable=False),
+    Column("cartoteka_id", String(16), ForeignKey("cartoteka.id"), nullable=False),
+    Column("axis", String(16), nullable=False),
+    Column("window_from", Date, nullable=False),
+    Column("window_to", Date, nullable=False),
+    Column("status", String(16), nullable=False, server_default="pending"),
+    Column("attempts", Integer, nullable=False, server_default="0"),
+    Column("cases_found", Integer, nullable=True),
+    Column("run_id", BigInteger, ForeignKey("harvest_run.id"), nullable=True),
+    Column("last_error", Text, nullable=True),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint(
+        "court_domain", "cartoteka_id", "axis", "window_from", "window_to", name="uq_task_window"
+    ),
+)

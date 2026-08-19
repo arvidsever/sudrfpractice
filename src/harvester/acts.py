@@ -17,12 +17,13 @@ from dataclasses import dataclass
 from sqlalchemy import create_engine, select, update
 from sqlalchemy.dialects.postgresql import insert
 
+from .client import open_client
 from .config import Settings
 from .config import settings as default_settings
 from .db.schema import act, act_text, case
 from .db.store import save_raw_page
+from .directories import court as find_court
 from .guards import Verdict, classify
-from .http import CourtClient
 from .parse.act import parse_act
 from .raw import RawStore
 
@@ -77,10 +78,10 @@ def collect_act_texts(
     stored = empty = failed = 0
     throttled = False
 
-    with CourtClient(settings, bulk=bulk) as client:
+    with open_client(find_court(court_domain), settings=settings, bulk=bulk) as client:
         for row in targets:
             try:
-                response = client.get(row.url)
+                response = client.get_passing_captcha(row.url)
             except Exception as exc:  # noqa: BLE001 — один акт не должен ронять свод
                 failed += 1
                 log.warning("акт %s: %s", row.doc_number, exc)

@@ -26,12 +26,12 @@ from datetime import date
 
 from sqlalchemy import create_engine
 
+from .client import open_client
 from .config import Settings
 from .config import settings as default_settings
 from .db import store
 from .directories import Cartoteka, Court
 from .guards import Verdict, classify, listing_kind, suspect_wrong_delo_id
-from .http import CourtClient
 from .parse.listing import parse_listing
 from .raw import RawStore
 from .urls import DateAxis, listing_url, page_count
@@ -91,13 +91,13 @@ def harvest_listing(
         )
 
     try:
-        with CourtClient(settings, bulk=bulk) as client:
+        with open_client(court, cartoteka, settings=settings, bulk=bulk) as client:
             page = 1
             total_pages: int | None = None
 
             while total_pages is None or page <= total_pages:
                 url = listing_url(court, cartoteka, axis, date_from, date_to, page=page)
-                response = client.get(url)
+                response = client.get_passing_captcha(url)
 
                 record = raw_store.save(
                     response.content,

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from sqlalchemy import create_engine
 from sqlalchemy.dialects.postgresql import insert
 
+from .client import open_client
 from .config import Settings
 from .config import settings as default_settings
 from .db.schema import cartoteka_volume
@@ -40,7 +41,7 @@ class Measurement:
 def measure_pair(client: CourtClient, court: Court, cartoteka: Cartoteka) -> Measurement:
     url = whole_cartoteka_url(court, cartoteka)
     try:
-        response = client.get(url)
+        response = client.get_passing_captcha(url)
     except Exception as exc:  # noqa: BLE001 — один суд не должен ронять замер
         return Measurement(
             court.domain, cartoteka.id, None, "failed", f"{type(exc).__name__}: {exc}"
@@ -95,8 +96,8 @@ def measure_all(
         targets = [t for t in targets if (t[0].domain, t[1].id) not in done]
 
     results: list[Measurement] = []
-    with CourtClient(settings, bulk=bulk) as client:
-        for court, cartoteka in targets:
+    for court, cartoteka in targets:
+        with open_client(court, cartoteka, settings=settings, bulk=bulk) as client:
             measurement = measure_pair(client, court, cartoteka)
             results.append(measurement)
             log.info(

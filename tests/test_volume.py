@@ -18,6 +18,10 @@ class _Client:
     def __init__(self, html: str | None = None, error: Exception | None = None):
         self.html, self.error, self.urls = html, error, []
 
+    def get_passing_captcha(self, url: str, attempts: int = 3):
+        """Замер идёт тем же путём, что обход: на капча-судах через решатель."""
+        return self.get(url)
+
     def get(self, url: str):
         self.urls.append(url)
         if self.error is not None:

@@ -30,6 +30,10 @@ class OutsideCollectionWindow(RuntimeError):
     """Массовый обход запущен вне ночного окна."""
 
 
+class CaptchaNotPassed(RuntimeError):
+    """Суд с капчей не пропустил нас после всех попыток."""
+
+
 def within_night_window(window: tuple[int, int], moment: datetime | None = None) -> bool:
     """Попадает ли момент в окно сбора [от, до) по часам.
 
@@ -67,12 +71,19 @@ class CourtClient:
         client: httpx.Client | None = None,
         *,
         bulk: bool = False,
+        captcha: object | None = None,
+        captcha_form_url: object | None = None,
     ):
         """`bulk=True` — режим массового обхода: он и только он обязан идти
         в ночное окно. Единичный диагностический запрос под это правило
         не подпадает, иначе проверить суд днём стало бы невозможно."""
         self.settings = settings or default_settings
         self.bulk = bulk
+        #: Решатель капчи и способ узнать, где у суда лежит форма с ней.
+        #: Без них клиент на капча-судах просто вернёт страницу-заглушку,
+        #: и это увидит `guards.classify` — молча ничего не потеряется.
+        self.captcha = captcha
+        self.captcha_form_url = captcha_form_url
         self._last_request: dict[str, float] = defaultdict(float)
         self._requests_today: dict[str, int] = defaultdict(int)
         self._client = client or httpx.Client(
@@ -134,6 +145,50 @@ class CourtClient:
 
         raise RuntimeError(f"{url}: не удалось получить ответ") from last_error
 
+    def get_passing_captcha(self, url: str, attempts: int = 3) -> Response:
+        """Как `get`, но на капча-судах проходит капчу и повторяет запрос.
+
+        Перебирать одну и ту же картинку бесполезно: портал держит её
+        на IP несколько минут и от неверных ответов не меняет. Поэтому
+        каждая попытка идёт за НОВОЙ формой, а не переспрашивает модель.
+        """
+        from .captcha.gate import extract_challenge
+        from .guards import Verdict, classify
+
+        host = httpx.URL(url).host
+        solver = self.captcha
+
+        token = solver.cached(host) if solver is not None else None
+        response = self.get(_with_token(url, token) if token else url)
+        if classify(response.text).verdict is not Verdict.CAPTCHA_GATE:
+            return response
+        if solver is None or self.captcha_form_url is None:
+            return response
+
+        for attempt in range(1, attempts + 1):
+            solver.forget(host)
+            form = self.get(self.captcha_form_url(url))
+            challenge = extract_challenge(form.text)
+            if challenge is None:
+                log.warning("%s: в форме нет капчи, хотя выдача её требует", host)
+                return response
+
+            token = solver.solve_challenge(host, challenge)
+            response = self.get(_with_token(url, token))
+            if classify(response.text).verdict is not Verdict.CAPTCHA_GATE:
+                log.info("%s: капча пройдена с попытки %d", host, attempt)
+                return response
+            log.info("%s: код не подошёл, попытка %d из %d", host, attempt, attempts)
+
+        solver.forget(host)
+        raise CaptchaNotPassed(f"{host}: капча не пройдена за {attempts} попыток")
+
     @property
     def requests_today(self) -> dict[str, int]:
         return dict(self._requests_today)
+
+
+def _with_token(url: str, token) -> str:
+    from .urls import with_captcha
+
+    return with_captcha(url, token.text, token.captchaid)

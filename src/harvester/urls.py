@@ -102,6 +102,28 @@ def listing_url(
     return f"https://{court.domain}/modules.php?{_query(pairs)}"
 
 
+def search_form_url(court: Court, cartoteka: Cartoteka) -> str:
+    """URL формы поиска — единственное место, где портал отдаёт капчу.
+
+    Картинка приходит инлайном (`data:image/png;base64,…`), рядом лежит
+    `<input name="captchaid">`. Отдельного запроса за картинкой не нужно.
+    """
+    pairs = [
+        ("name", "sud_delo"),
+        ("srv_num", SRV_NUM),
+        ("name_op", "sf"),
+        ("delo_id", cartoteka.listing_delo_id),
+        ("case_type", "0"),
+        ("new", cartoteka.new),
+    ]
+    return f"https://{court.domain}/modules.php?{_query(pairs)}"
+
+
+def with_captcha(url: str, text: str, captchaid: str) -> str:
+    """Дописать решённую пару к запросу."""
+    return f"{url}&captcha={percent_encode(text)}&captchaid={percent_encode(captchaid)}"
+
+
 def whole_cartoteka_url(court: Court, cartoteka: Cartoteka, page: int = 1) -> str:
     """URL перечня БЕЗ фильтра дат — счётчик на нём равен объёму всей картотеки.
 

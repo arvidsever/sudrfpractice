@@ -134,7 +134,7 @@ def test_dates_and_act_flag_are_stored(db_settings, offline_client) -> None:
 
 
 def test_missing_act_link_is_unknown_not_denial(
-    db_settings, monkeypatch, listing_no_act_links: str
+    db_settings, monkeypatch, listing_foreign_ip: str
 ) -> None:
     """Пустая последняя колонка означает «не знаем», а не «акта нет».
 
@@ -142,7 +142,7 @@ def test_missing_act_link_is_unknown_not_denial(
     карточку никто не открывал. Текст при этом доступен — карточка несёт
     его в `cont_doc1`.
     """
-    payload = listing_no_act_links.encode("cp1251", errors="replace")
+    payload = listing_foreign_ip.encode("cp1251", errors="replace")
     monkeypatch.setattr(
         "harvester.http.CourtClient.get",
         lambda self, url: Response(url=url, status_code=200, content=payload),

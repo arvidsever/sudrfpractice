@@ -76,13 +76,13 @@ def test_parsing_a_non_listing_raises(listing_bad_new: str, listing_captcha_gate
             parse_listing(html, court_domain=DOMAIN, cartoteka_id="g3")
 
 
-def test_listing_without_act_links_still_parses(listing_no_act_links: str) -> None:
-    """19.08.2026 портал убрал ссылки на тексты из последней колонки.
+def test_listing_from_foreign_ip_still_parses(listing_foreign_ip: str) -> None:
+    """С зарубежного адреса портал прячет колонку с актами.
 
     Разбор от этого не ломается: счётчик, строки и реквизиты те же.
-    Пустой `act_links` — теперь состояние по умолчанию, а не редкость.
+    Ловится это не парсером, а детектором `suspect_hidden_act_links`.
     """
-    page = parse_listing(listing_no_act_links, court_domain=DOMAIN, cartoteka_id="g3")
+    page = parse_listing(listing_foreign_ip, court_domain=DOMAIN, cartoteka_id="g3")
 
     assert page.total == 530
     assert len(page.rows) == 25
@@ -93,3 +93,19 @@ def test_listing_without_act_links_still_parses(listing_no_act_links: str) -> No
     assert first.case_number == "8Г-15211/2026 [88-14715/2026]"
     assert first.judge == "Попова Елена Викторовна"
     assert first.case_uid == "3128af6a-aafd-43ab-a873-18c4f46b860e"
+
+
+def test_hidden_act_links_are_detected(listing_acts: str, listing_foreign_ip: str) -> None:
+    """Полная страница без единой ссылки под осью публикации — это признак
+    «плохого» адреса, а не отсутствия опубликованных актов."""
+    from harvester.guards import suspect_hidden_act_links
+
+    good = parse_listing(listing_acts, court_domain=DOMAIN, cartoteka_id="g3")
+    bad = parse_listing(listing_foreign_ip, court_domain=DOMAIN, cartoteka_id="g3")
+
+    assert not suspect_hidden_act_links(
+        sum(1 for row in good.rows if row.act_links), len(good.rows)
+    )
+    assert suspect_hidden_act_links(sum(1 for row in bad.rows if row.act_links), len(bad.rows))
+    # Пустая страница подозрительной не считается — там просто нечего скрывать.
+    assert not suspect_hidden_act_links(0, 0)

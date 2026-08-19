@@ -30,7 +30,7 @@ from .config import Settings
 from .config import settings as default_settings
 from .db import store
 from .directories import Cartoteka, Court
-from .guards import Verdict, classify
+from .guards import Verdict, classify, suspect_hidden_act_links
 from .http import CourtClient
 from .parse.listing import parse_listing
 from .raw import RawStore
@@ -75,6 +75,7 @@ def harvest_listing(
     engine = create_engine(settings.database_url)
 
     expected: int | None = None
+    hidden_links = False
     cases = acts = pages_done = 0
     status = "failed"
     note: str | None = None
@@ -127,6 +128,18 @@ def harvest_listing(
                 )
 
                 if expected is None:
+                    if axis is DateAxis.PUBLICATION and suspect_hidden_act_links(
+                        sum(1 for row in listing.rows if row.act_links), len(listing.rows)
+                    ):
+                        log.warning(
+                            "%s: под осью публикации нет НИ ОДНОЙ ссылки на текст акта "
+                            "на всей странице. Скорее всего запрос идёт с адреса, которому "
+                            "портал ссылки не показывает — корпус соберётся без текстов. "
+                            "См. docs/act-links-and-egress.md",
+                            court.domain,
+                        )
+                        hidden_links = True
+
                     expected = listing.total
                     total_pages = page_count(expected)
                     if max_pages is not None:
@@ -162,6 +175,12 @@ def harvest_listing(
                     note = f"пилот: {pages_done} страниц из {page_count(expected)}"
                 elif expected is not None and cases == expected:
                     status = "complete"
+                    if hidden_links:
+                        note = (
+                            "реквизиты собраны полностью, но ссылок на тексты нет ни у одного "
+                            "дела — вероятно, обход шёл с адреса, которому портал их не "
+                            "показывает. См. docs/act-links-and-egress.md"
+                        )
                 else:
                     status = "short"
                     note = f"счётчик обещал {expected}, разобрано {cases}"

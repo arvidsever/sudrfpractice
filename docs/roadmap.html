@@ -1,0 +1,890 @@
+<title>Корпус кассационных актов</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=PT+Serif:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+
+<style>
+:root {
+  --paper:      #EFF1F4;
+  --card:       #FFFFFF;
+  --ink:        #161A20;
+  --ink-soft:   #59626E;
+  --ink-faint:  #8A939F;
+  --rule:       #D5DAE1;
+  --rule-soft:  #E4E8EC;
+  --accent:     #7A1F2B;
+  --accent-bg:  #F5E9EA;
+  --done:       #2F6B4F;
+  --done-bg:    #E6F0EA;
+  --active:     #2C5578;
+  --active-bg:  #E5EDF4;
+  --blocked:    #9A6208;
+  --blocked-bg: #F7EEDC;
+
+  --serif: "PT Serif", "Times New Roman", Georgia, serif;
+  --sans:  "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono:  "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:      #12151A;
+    --card:       #191D24;
+    --ink:        #E4E8ED;
+    --ink-soft:   #97A1AD;
+    --ink-faint:  #6B7684;
+    --rule:       #2A303A;
+    --rule-soft:  #232830;
+    --accent:     #C8808B;
+    --accent-bg:  #2B1C1F;
+    --done:       #62A883;
+    --done-bg:    #16261E;
+    --active:     #6FA0CE;
+    --active-bg:  #16222E;
+    --blocked:    #D0A050;
+    --blocked-bg: #2A2216;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper:      #12151A;
+  --card:       #191D24;
+  --ink:        #E4E8ED;
+  --ink-soft:   #97A1AD;
+  --ink-faint:  #6B7684;
+  --rule:       #2A303A;
+  --rule-soft:  #232830;
+  --accent:     #C8808B;
+  --accent-bg:  #2B1C1F;
+  --done:       #62A883;
+  --done-bg:    #16261E;
+  --active:     #6FA0CE;
+  --active-bg:  #16222E;
+  --blocked:    #D0A050;
+  --blocked-bg: #2A2216;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: clamp(32px, 6vw, 72px) clamp(20px, 5vw, 48px) 96px;
+}
+
+/* ---------- шапка ---------- */
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 14px;
+}
+
+h1 {
+  font-family: var(--serif);
+  font-size: clamp(30px, 5vw, 46px);
+  line-height: 1.14;
+  font-weight: 700;
+  margin: 0 0 18px;
+  text-wrap: balance;
+  letter-spacing: -0.01em;
+}
+
+.lede {
+  font-size: 18px;
+  line-height: 1.65;
+  color: var(--ink-soft);
+  max-width: 66ch;
+  margin: 0 0 8px;
+}
+
+.stamp {
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+}
+
+/* ---------- сводка ---------- */
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  margin: 40px 0 8px;
+}
+
+.tile {
+  background: var(--card);
+  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.tile-label {
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+
+.tile-value {
+  font-family: var(--mono);
+  font-size: 27px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.tile-note { font-size: 13px; color: var(--ink-soft); }
+
+/* ---------- общий текст ---------- */
+
+h2 {
+  font-family: var(--serif);
+  font-size: 25px;
+  font-weight: 700;
+  margin: 56px 0 14px;
+  letter-spacing: -0.005em;
+  text-wrap: balance;
+}
+
+p { max-width: 68ch; margin: 0 0 16px; }
+
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.87em;
+  background: var(--rule-soft);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+
+/* ---------- врезка с арифметикой ---------- */
+
+.callout {
+  border-left: 3px solid var(--accent);
+  background: var(--accent-bg);
+  padding: 20px 24px;
+  margin: 26px 0 8px;
+}
+
+.callout h3 {
+  font-family: var(--sans);
+  font-size: 14px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+  color: var(--accent);
+}
+
+.callout p { margin-bottom: 10px; }
+.callout p:last-child { margin-bottom: 0; }
+
+.sum {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.9;
+  margin: 14px 0;
+  overflow-x: auto;
+}
+
+.sum b { font-weight: 500; color: var(--accent); }
+
+/* ---------- этапы ---------- */
+
+.stage {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 0 22px;
+  padding: 30px 0 6px;
+  border-top: 1px solid var(--rule);
+}
+
+.stage:first-of-type { border-top: 2px solid var(--ink); }
+
+.marker {
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 500;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  padding-top: 2px;
+}
+
+.stage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.stage h3 {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.005em;
+}
+
+.chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.chip-done    { color: var(--done);    background: var(--done-bg); }
+.chip-active  { color: var(--active);  background: var(--active-bg); }
+.chip-wait    { color: var(--ink-faint); background: var(--rule-soft); }
+.chip-blocked { color: var(--blocked); background: var(--blocked-bg); }
+
+.stage-aim {
+  color: var(--ink-soft);
+  margin: 0 0 16px;
+  max-width: 64ch;
+}
+
+.tasks { list-style: none; margin: 0 0 4px; padding: 0; }
+
+.tasks li {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 0 14px;
+  padding: 11px 0;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.tasks li:first-child { border-top: none; }
+
+.task-id {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  padding-top: 2px;
+}
+
+.task-body strong { font-weight: 600; }
+.task-body { min-width: 0; }
+
+.criterion {
+  display: block;
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin-top: 3px;
+}
+
+.criterion::before {
+  content: "готово, когда ";
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.done-mark { color: var(--done); font-weight: 600; }
+
+/* ---------- таблица ---------- */
+
+.table-scroll { overflow-x: auto; margin: 20px 0 8px; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14.5px;
+  min-width: 460px;
+}
+
+th, td {
+  text-align: left;
+  padding: 9px 16px 9px 0;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: top;
+}
+
+th {
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 500;
+  border-bottom: 1px solid var(--rule);
+}
+
+td.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  padding-right: 24px;
+  white-space: nowrap;
+}
+
+/* ---------- решения и инварианты ---------- */
+
+.decisions { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+
+.decision { background: var(--card); padding: 16px 20px; }
+
+.decision strong { display: block; margin-bottom: 3px; }
+
+.decision span { color: var(--ink-soft); font-size: 14.5px; }
+
+.rules { margin: 0; padding: 0; list-style: none; }
+
+.rules li {
+  padding: 13px 0 13px 22px;
+  border-top: 1px solid var(--rule-soft);
+  position: relative;
+  max-width: 70ch;
+}
+
+.rules li:first-child { border-top: none; }
+
+.rules li::before {
+  content: "§";
+  position: absolute;
+  left: 0;
+  font-family: var(--serif);
+  color: var(--accent);
+}
+
+footer {
+  margin-top: 60px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule);
+  font-size: 13.5px;
+  color: var(--ink-faint);
+  max-width: 68ch;
+}
+
+@media (max-width: 620px) {
+  .stage { grid-template-columns: 1fr; gap: 0; }
+  .marker { font-size: 15px; padding-bottom: 6px; }
+  .tasks li { grid-template-columns: 1fr; gap: 2px; }
+  .task-id { padding-top: 0; }
+}
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">Правовая база судебных актов КСОЮ</p>
+  <h1>Корпус кассационных актов: план разработки</h1>
+  <p class="lede">
+    Харвестер собирает с сайтов девяти кассационных судов общей юрисдикции
+    и Кассационного военного суда перечни дел и тексты судебных актов, база
+    даёт по ним поиск. Разведка и каркас закрыты, сбор работает на живых судах.
+    Ниже — что осталось, в порядке зависимостей.
+  </p>
+  <p class="stamp">
+    <span>19.08.2026, ночь</span>
+    <span>репозиторий sudrfpractice</span>
+    <span>ветка bootstrap-harvester</span>
+    <span>118 тестов, CI зелёный</span>
+  </p>
+
+  <div class="board">
+    <div class="tile">
+      <span class="tile-label">Корпус замерен</span>
+      <span class="tile-value">2 592 521</span>
+      <span class="tile-note">дело, 39 пар из 40</span>
+    </div>
+    <div class="tile">
+      <span class="tile-label">Очередь индекса</span>
+      <span class="tile-value">6 638</span>
+      <span class="tile-note">окон, две оси дат</span>
+    </div>
+    <div class="tile">
+      <span class="tile-label">Капча</span>
+      <span class="tile-value">94,5 %</span>
+      <span class="tile-note">целиком; открыты все четыре суда</span>
+    </div>
+    <div class="tile">
+      <span class="tile-label">Разобрано карточек</span>
+      <span class="tile-value">27</span>
+      <span class="tile-note">279 текстов, 106 участников</span>
+    </div>
+  </div>
+
+  <h2>Масштаб задаёт форму работы</h2>
+  <p>
+    Оценка по одной неделе ошиблась вдвое, поэтому корпус измерен: по запросу
+    на каждую пару суд × картотека. После того как капча открыла четыре
+    закрытых суда, замер закончен почти целиком — <b>2 592 521 дело</b>,
+    39 пар из 40. Последняя, гражданская кассация 3 КСОЮ, ждёт, пока суд
+    снимет паузу.
+  </p>
+
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>Суд</th><th>Гражданская</th><th>Уголовная</th>
+          <th>КоАП</th><th>КАС</th><th>Всего</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>1 КСОЮ</td><td class="num">236 445</td><td class="num">89 081</td><td class="num">57 482</td><td class="num">28 926</td><td class="num">411 934</td></tr>
+        <tr><td>2 КСОЮ</td><td class="num">224 717</td><td class="num">84 913</td><td class="num">65 757</td><td class="num">27 202</td><td class="num">402 589</td></tr>
+        <tr><td>4 КСОЮ</td><td class="num">224 947</td><td class="num">76 545</td><td class="num">49 697</td><td class="num">31 456</td><td class="num">382 645</td></tr>
+        <tr><td>6 КСОЮ</td><td class="num">174 516</td><td class="num">95 860</td><td class="num">55 040</td><td class="num">25 268</td><td class="num">350 684</td></tr>
+        <tr><td>8 КСОЮ</td><td class="num">160 485</td><td class="num">89 346</td><td class="num">55 890</td><td class="num">21 752</td><td class="num">327 473</td></tr>
+        <tr><td>7 КСОЮ</td><td class="num">135 657</td><td class="num">84 837</td><td class="num">44 424</td><td class="num">17 122</td><td class="num">282 040</td></tr>
+        <tr><td>9 КСОЮ</td><td class="num">73 438</td><td class="num">37 997</td><td class="num">25 063</td><td class="num">12 156</td><td class="num">148 654</td></tr>
+        <tr><td>5 КСОЮ</td><td class="num">71 700</td><td class="num">28 010</td><td class="num">21 843</td><td class="num">10 689</td><td class="num">132 242</td></tr>
+        <tr><td>Военный</td><td class="num">3 426</td><td class="num">7 639</td><td class="num">1 566</td><td class="num">11 352</td><td class="num">23 983</td></tr>
+        <tr><td>3 КСОЮ</td><td class="num">—</td><td class="num">59 046</td><td class="num">46 426</td><td class="num">24 805</td><td class="num">130 277</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <h3>Перечни в двадцать раз дешевле текстов</h3>
+    <p class="sum">
+      перечень &nbsp;=&nbsp; 1 запрос на <b>25 дел</b><br>
+      текст &nbsp;&nbsp;&nbsp;&nbsp;=&nbsp; 1 запрос на <b>1 дело</b>
+    </p>
+    <p>
+      Суды идут параллельно, поэтому срок задаёт не сумма, а крупнейший из них —
+      1 КСОЮ с его 411 934 делами. При дросселе 3 с и ночном окне 6 часов:
+    </p>
+    <p class="sum">
+      перечни, обе оси &nbsp;→&nbsp; 28 ч на 1 КСОЮ &nbsp;=&nbsp; <b>около 5 ночей</b><br>
+      тексты &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; → 285 ч на 1 КСОЮ &nbsp;=&nbsp; <b>около 48 ночей</b>
+    </p>
+    <p>
+      Отсюда сбор делится надвое. Сперва <b>полный индекс</b> — 2,6 млн дел
+      с номерами, датами, судьями, результатами и ссылками на тексты; пять ночей,
+      и корпусом уже можно пользоваться. Потом <b>тексты</b> — месяцами, фоном,
+      в порядке, который задаёте вы. Полезный продукт появляется через неделю,
+      а не через два месяца.
+    </p>
+  </div>
+
+  <h2>Этапы</h2>
+
+  <div class="stage">
+    <div class="marker">00</div>
+    <div>
+      <div class="stage-head">
+        <h3>Разведка, каркас, первый сбор</h3>
+        <span class="chip chip-done">сделано</span>
+      </div>
+      <p class="stage-aim">
+        Грамматика перечня проверена живьём, харвестер собирает перечни
+        и тексты, полнота сверяется со счётчиком суда.
+      </p>
+      <ul class="tasks">
+        <li><span class="task-id">0.1</span><span class="task-body">
+          <strong>Грамматика перечня КСОЮ</strong> — параметры картотек, три оси дат,
+          пагинация, тихие отказы. <span class="done-mark">Закрыто, с поправкой 19.08 про <code>delo_id</code>.</span>
+        </span></li>
+        <li><span class="task-id">0.2</span><span class="task-body">
+          <strong>Каркас на Python</strong> — слой сырья, парсеры на живых фикстурах,
+          схема Postgres с миграциями, CI. <span class="done-mark">Закрыто.</span>
+        </span></li>
+        <li><span class="task-id">0.3</span><span class="task-body">
+          <strong>Сбор перечня и текстов</strong> — 5 КСОЮ целиком (279 дел, 279 текстов),
+          2 КСОЮ перечень (530). <span class="done-mark">Закрыто.</span>
+        </span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="marker">01</div>
+    <div>
+      <div class="stage-head">
+        <h3>Замерить корпус и построить очередь</h3>
+        <span class="chip chip-done">сделано</span>
+      </div>
+      <p class="stage-aim">
+        Оценка по одной неделе ошиблась вдвое. Сорок запросов заменили её фактом,
+        и факт переставил остальные этапы местами.
+      </p>
+      <ul class="tasks">
+        <li><span class="task-id">1.1</span><span class="task-body">
+          <strong>Измерить объём</strong> — счётчик по каждой паре суд × картотека.
+          <span class="done-mark">Сначала 24 пары из 40; после этапа 02 — 39.
+          Итого 2 592 521 дело.</span>
+        </span></li>
+        <li><span class="task-id">1.2</span><span class="task-body">
+          <strong>Нарезка окон</strong> — календарные месяцы от 01.10.2019.
+          <span class="done-mark">6 640 окон: две оси × 10 судов × 4 картотеки × 83 месяца.</span>
+        </span></li>
+        <li><span class="task-id">1.3</span><span class="task-body">
+          <strong>Таблица заданий</strong> — очередь окон со статусом и числом попыток.
+          <span class="done-mark">«Сколько осталось» стало запросом: <code>harvester queue</code>.</span>
+        </span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="marker">02</div>
+    <div>
+      <div class="stage-head">
+        <h3>Капча</h3>
+        <span class="chip chip-done">сделано</span>
+      </div>
+      <p class="stage-aim">
+        Открыты 1, 3, 4 и 6 КСОЮ — четыре суда, которые держали и сбор,
+        и замер объёма. Работа шла целиком офлайн: обучение на локальном
+        корпусе из 17 035 капч судов не тревожило вовсе.
+      </p>
+      <ul class="tasks">
+        <li><span class="task-id">2.1</span><span class="task-body">
+          <strong>Модель обучена</strong> — 30 эпох, 38 минут на CPU.
+          <span class="done-mark">97,8 % по цифрам, 94,5 % капча целиком с TTA.</span>
+          Корпус в 1,4 раза больше, чем у автора оригинала, а точность та же:
+          объём своё отдал, дальше искать надо в архитектуре.
+        </span></li>
+        <li><span class="task-id">2.2</span><span class="task-body">
+          <strong>Инференс на NumPy</strong> сверен с оригиналом на двух уровнях.
+          <span class="done-mark">Препроцессинг — расхождение ровно ноль на 60 картинках;
+          вероятности — 3·10⁻⁷ на 200 картинках, ни одного расхождения в цифрах.</span>
+        </span></li>
+        <li><span class="task-id">2.3</span><span class="task-body">
+          <strong>Встроен в клиент.</strong> 3 КСОЮ живьём: без решателя гейт,
+          с ним — <span class="done-mark">выдача 408 дел</span>.
+        </span></li>
+        <li><span class="task-id">2.4</span><span class="task-body">
+          <strong>Отступление вместо накопления блокировки</strong> — пауза
+          30 минут после «Информация временно недоступна», 10 после неудачи
+          с капчей, общая на процесс.
+        </span></li>
+        <li><span class="task-id">2.5</span><span class="task-body">
+          <strong>Домерены 14 пар из 16.</strong> Осталась одна, <code>3kas/g3</code>:
+          суд держит паузу.
+        </span></li>
+      </ul>
+      <div class="callout">
+        <h3>Находка: перебирать нечего</h3>
+        <p>
+          Портал держит капчу на IP несколько минут и <b>не меняет её
+          от неверных ответов</b> — три захода за формой подряд дают тот же
+          <code>captchaid</code> и те же байты. Значит новая форма ничего
+          не даёт, и перебирать надо <b>прочтения одной картинки</b>.
+          Кандидаты строятся заменой одной цифры на второй по вероятности
+          вариант: ошибается модель почти всегда ровно в одной.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="marker">03</div>
+    <div>
+      <div class="stage-head">
+        <h3>Автономный сбор и полный индекс</h3>
+        <span class="chip chip-active">идёт</span>
+        <span class="chip chip-wait">≈ 5 ночей сбора</span>
+      </div>
+      <p class="stage-aim">
+        Механика готова целиком; осталось дать ей отработать ночи.
+        Прогон поставлен в расписание на 01:00 и держит машину бодрствующей,
+        пока работает.
+      </p>
+      <ul class="tasks">
+        <li><span class="task-id">3.1</span><span class="task-body">
+          <strong>Индекс по двум осям</strong> — 6 640 окон, поставлен на ночь.
+          <span class="criterion">по номеру, судье, результату и дате ищется всё, что есть в десяти судах</span>
+        </span></li>
+        <li><span class="task-id">3.2</span><span class="task-body">
+          <strong>Возобновляемый прогон</strong> — захват через
+          <code>FOR UPDATE SKIP LOCKED</code>, незакрытые окна возвращаются
+          в очередь следующим запуском. <span class="done-mark">Сделано.</span>
+        </span></li>
+        <li><span class="task-id">3.3</span><span class="task-body">
+          <strong>Параллельно по судам</strong> — поток на суд, замок на хост.
+          <span class="done-mark">Сделано.</span>
+        </span></li>
+        <li><span class="task-id">3.4</span><span class="task-body">
+          <strong>Бюджет запросов</strong> — ловит его не потолок в 5 000,
+          а реакция суда. <span class="done-mark">Сделано через паузы.</span>
+        </span></li>
+        <li><span class="task-id">3.5</span><span class="task-body">
+          <strong>Инкрементальный добег</strong> — окно с запасом назад:
+          портал публикует и задним числом. <span class="done-mark">Сделано.</span>
+        </span></li>
+        <li><span class="task-id">3.6</span><span class="task-body">
+          <strong>Тексты 2 КСОЮ</strong> — 530 актов; суд придержан с 19.08.
+          <span class="criterion">несобранных актов по собранным окнам нет</span>
+        </span></li>
+      </ul>
+
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Ось дат</th><th>Что попадает в индекс</th><th>Ссылки на акты</th></tr></thead>
+          <tbody>
+            <tr><td>публикация</td><td>дела с опубликованным актом</td><td>у каждой строки</td></tr>
+            <tr><td>поступление</td><td><b>все</b> дела, включая нерассмотренные</td><td>только где акт уже есть</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="stage-aim">
+        Замер на 5 КСОЮ за неделю 01–07.06.2026: по публикации 189 дел
+        и 25 ссылок из 25, по поступлению 218 дел и 4 из 25. Отсюда
+        <b>ловушка учёта</b>: замеренные 2 592 521 дело — счётчик без фильтра
+        дат, и индекс по публикации даст меньше примерно на 7 %. Это
+        не недосбор, а дела, у которых нечего искать.
+      </p>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="marker">04</div>
+    <div>
+      <div class="stage-head">
+        <h3>Сервер</h3>
+        <span class="chip chip-blocked">заблокирован</span>
+      </div>
+      <p class="stage-aim">
+        Проверка окупилась ровно так, как задумывалась: двадцать минут
+        <code>curl</code> вместо переноса всего хозяйства и обнаружения
+        проблемы на боевом прогоне.
+      </p>
+      <ul class="tasks">
+        <li><span class="task-id">4.1</span><span class="task-body">
+          <strong>Доступ с сервера проверен — результат отрицательный.</strong>
+          ГАС отдаёт заглушку «заблокирован по соображениям безопасности (G)»
+          и надпись <i>United States</i>. Докупленные адреса из другого
+          диапазона не помогли: у провайдера всё унаследованное пространство
+          помечено как США (имена сетей <code>RU-JSCIOT-19911202</code>
+          и <code>-19971014</code> — 1991 и 1997 годы). Сертификаты ни при чём,
+          суды отдают Let&rsquo;s Encrypt. Обращение отправлено, передано
+          техническим специалистам.
+          <span class="criterion">суды отвечают с сервера так же, как с ноутбука</span>
+        </span></li>
+        <li><span class="task-id">4.2</span><span class="task-body">
+          <strong>Перенос и расписание</strong> — на ноутбуке уже работает
+          (<code>launchd</code>, 01:00, <code>caffeinate</code>); на сервере
+          повторяется после 4.1.
+        </span></li>
+        <li><span class="task-id">4.3</span><span class="task-body">
+          <strong>Бэкапы</strong> — выгрузка в объектное хранилище написана
+          и покрыта тестами, ждёт бакета.
+          <span class="criterion">потеря сервера не означает повторного обхода</span>
+        </span></li>
+        <li><span class="task-id">4.4</span><span class="task-body">
+          <strong>Отдельный адрес</strong> от сервера с боевыми делами.
+        </span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="marker">05</div>
+    <div>
+      <div class="stage-head">
+        <h3>Карточки по всей глубине</h3>
+        <span class="chip chip-wait">≈ 48 ночей фоном</span>
+      </div>
+      <p class="stage-aim">
+        Один запрос на дело даёт всё сразу: текст акта, участников с ИНН
+        и ОГРН, перечень вменяемых статей, движение по событиям, путь жалобы
+        и связку с первой инстанцией. Раньше здесь были только тексты.
+      </p>
+      <ul class="tasks">
+        <li><span class="task-id">5.1</span><span class="task-body">
+          <strong>Обойти карточки</strong> по индексу этапа 03. Порядок задаёте
+          вы: от свежего к старому, по картотекам или по судам.
+          <span class="criterion">дел с непроставленным <code>card_fetched_at</code> не осталось</span>
+        </span></li>
+        <li><span class="task-id">5.2</span><span class="task-body">
+          <strong>Разобрать расхождения</strong> — в журнале не должно остаться
+          <code>short</code> без объяснения.
+        </span></li>
+        <li><span class="task-id">5.3</span><span class="task-body">
+          <strong>Отметить непубликуемое.</strong> После карточки
+          <code>act_published</code> становится честным <code>false</code>,
+          до неё — <code>null</code>.
+        </span></li>
+      </ul>
+
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Производство</th><th>Таблица участников</th><th>Статьи</th></tr></thead>
+          <tbody>
+            <tr><td>гражданские</td><td>«УЧАСТНИКИ»</td><td>—</td></tr>
+            <tr><td>КАС</td><td>«УЧАСТНИКИ», роли административные</td><td>—</td></tr>
+            <tr><td>уголовные</td><td>«ЛИЦА» <b>и</b> «СТОРОНЫ»</td><td>в «ЛИЦАХ»</td></tr>
+            <tr><td>КоАП</td><td>«СТОРОНЫ ПО ДЕЛУ»</td><td>там же</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="stage-aim">
+        Разделы карточки зависят от вида производства. Парсер, знающий только
+        «УЧАСТНИКОВ», по уголовным и КоАП вернул бы пустой список — и счётчики
+        бы сошлись. Все четыре вида сняты фикстурами и покрыты тестами.
+      </p>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="marker">06</div>
+    <div>
+      <div class="stage-head">
+        <h3>Поиск</h3>
+        <span class="chip chip-wait">≈ 2–3 дня</span>
+      </div>
+      <p class="stage-aim">
+        Полнотекст по-русски уже работает. Остальное — то, ради чего корпус
+        и собирается: искать по норме и по смыслу, а не только по словам.
+      </p>
+      <ul class="tasks">
+        <li><span class="task-id">6.1</span><span class="task-body">
+          <strong>Фасеты</strong> — суд, картотека, судья, результат, даты,
+          суд первой инстанции.
+          <span class="criterion">выдачу можно сузить по каждому реквизиту строки</span>
+        </span></li>
+        <li><span class="task-id">6.2</span><span class="task-body">
+          <strong>Ссылки на нормы.</strong> <span class="done-mark">Наполовину
+          закрыто:</span> перечень вменяемых статей есть прямо в карточке
+          у уголовных и КоАП и уже собирается. Осталось разобрать нормы,
+          на которые ссылается сам текст акта.
+          <span class="criterion">«практика по ст. 333 ГК» — это запрос, а не полнотекстовый поиск</span>
+        </span></li>
+        <li><span class="task-id">6.3</span><span class="task-body">
+          <strong>Выбрать модель эмбеддингов</strong> — от неё зависит размерность
+          <code>vector(N)</code>, а размерность фиксируется схемой.
+          <span class="criterion">модель выбрана, миграция с колонкой применена</span>
+        </span></li>
+        <li><span class="task-id">6.4</span><span class="task-body">
+          <strong>Проиндексировать</strong> — эмбеддинги по актам, индекс HNSW.
+          Акты длинные, значит нужна нарезка на фрагменты.
+          <span class="criterion">семантический поиск находит близкое по смыслу, а не по словам</span>
+        </span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="marker">07</div>
+    <div>
+      <div class="stage-head">
+        <h3>API и клиент</h3>
+        <span class="chip chip-wait">после 06</span>
+      </div>
+      <p class="stage-aim">
+        Слой, через который корпусом пользуются. До этого момента база —
+        инструмент одного человека, и это упрощает всё остальное.
+      </p>
+      <ul class="tasks">
+        <li><span class="task-id">7.1</span><span class="task-body">
+          <strong>FastAPI</strong> — поиск, карточка дела, текст акта, пагинация.
+          <span class="criterion">поиск работает из HTTP, а не из <code>psql</code></span>
+        </span></li>
+        <li><span class="task-id">7.2</span><span class="task-body">
+          <strong>Приложение как клиент</strong> — <code>Sudrf</code> ходит в этот API
+          за практикой. Сбор в приложение по-прежнему не встраивается.
+          <span class="criterion">юрист ищет практику, не выходя из приложения</span>
+        </span></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Решения, которых не хватает</h2>
+  <p>
+    Всё ниже меняет объём работы, и ни одно я принимать за вас не буду.
+  </p>
+
+  <div class="decisions">
+    <div class="decision">
+      <strong>Глубина ретроспективы</strong>
+      <span>Индекс собирается целиком по обеим осям — решено. А тексты? Вся глубина — 48 ночей, последние два года — около 12.</span>
+    </div>
+    <div class="decision">
+      <strong>Дроссель в 3 секунды</strong>
+      <span>48 ночей на тексты — это следствие трёх секунд. Две секунды дали бы 32 ночи, полторы — 24. Уменьшать значит осознанно повышать риск блокировок; сегодняшняя уже случилась.</span>
+    </div>
+    <div class="decision">
+      <strong>Реестр картотек в <code>Sudrf</code></strong>
+      <span>Ветка с правкой грамматики отправлена в <code>Sudrf</code>, но сам реестр не тронут: поле <code>actTextLinks</code> в приложении по-прежнему не срабатывает ни разу.</span>
+    </div>
+    <div class="decision">
+      <strong>Карточка с коротким <code>delo_id</code></strong>
+      <span>Есть неподтверждённое наблюдение, что карточка теряет тексты актов. Снималось под блокировкой, требует перепроверки — от ответа зависит, дефект это приложения или нет.</span>
+    </div>
+    <div class="decision">
+      <strong>Доступ третьих лиц</strong>
+      <span>Пока корпус — личный исследовательский инструмент, правовой вопрос не стоит. Любое расширение доступа требует отдельной проверки условий использования сайтов судов и режима персональных данных.</span>
+    </div>
+  </div>
+
+  <h2>Что нельзя потерять</h2>
+  <ul class="rules">
+    <li>
+      <strong>Тихий отказ — главный риск.</strong> Портал отвечает 200 на любой
+      кривой запрос. Выдачей считается только ответ с <code>table#tablcont</code>,
+      число строк сверяется со счётчиком, каждое окно пишется в журнал.
+    </li>
+    <li>
+      <strong>Счётчик может сойтись при неверном запросе.</strong> Короткий
+      <code>delo_id</code> даёт те же 530 дел и те же реквизиты — без единой ссылки
+      на текст. Проверка по числу строк это пропускает, поэтому есть отдельные
+      детекторы.
+    </li>
+    <li>
+      <strong>Сырьё хранится до разбора.</strong> Парсеры будут дорабатываться;
+      архив избавляет от повторного обхода судов, который стоит недели.
+    </li>
+    <li>
+      <strong>262-ФЗ.</strong> Публикуется не всё. Пустая выдача не означает
+      отсутствия дела, а отсутствие текста — законное состояние, а не сбой.
+    </li>
+    <li>
+      <strong>Строка выдачи обезличена не везде.</strong> У уголовной кассации
+      и КоАП третья колонка несёт ФИО целиком вместе с вменяемой статьёй, хотя
+      тексты актов обезличены.
+    </li>
+    <li>
+      <strong>Диагностика идёт через тот же клиент.</strong> Блокировка 19.08
+      пришла не от обхода, а от разовых проверок мимо дросселя.
+    </li>
+  </ul>
+
+  <footer>
+    Числа в таблице — счётчики самих судов, снятые 19.08.2026 одним запросом
+    на пару суд × картотека; 39 пар из 40, последняя ждёт, пока 3 КСОЮ снимет паузу. Расчёты сроков исходят из дросселя 3 с на хост,
+    параллельного обхода судов и ночного окна 6 ч; доля дел с опубликованным
+    актом принята равной 83 % по соотношению собранного окна к общему счётчику.
+    Сроки этапов — рабочее время, отдельно от времени сбора.
+  </footer>
+
+</div>

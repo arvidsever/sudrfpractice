@@ -93,6 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     catch.add_argument("--court", action="append")
     catch.add_argument("--pilot", action="store_true", help="без требования ночного окна")
 
+    embed_cmd = sub.add_parser("embed", help="нарезать акты и посчитать эмбеддинги")
+    embed_cmd.add_argument("--limit", type=int, help="сколько кусков посчитать за раз")
+
     dump_cmd = sub.add_parser("dump", help="снять дамп базы и положить в хранилище")
     dump_cmd.add_argument("--keep", type=int, default=7, help="сколько дампов держать")
     dump_cmd.add_argument("--force", action="store_true", help="снять, даже если за сегодня есть")
@@ -196,6 +199,20 @@ def main(argv: list[str] | None = None) -> int:
             only_cartoteki=args.cartoteka,
         )
         print(f"заданий добавлено: {added}, уже было: {existed}")
+        return 0
+
+    if args.command == "embed":
+        import logging
+
+        from sqlalchemy import create_engine
+
+        from .config import settings
+        from .embeddings import fill_embeddings, split_pending
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        engine = create_engine(settings.database_url)
+        print(f"нарезано кусков: {split_pending(engine)}")
+        print(f"посчитано эмбеддингов: {fill_embeddings(engine, limit=args.limit)}")
         return 0
 
     if args.command == "dump":

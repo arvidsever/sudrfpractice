@@ -415,7 +415,7 @@ footer {
     <span>20.08.2026, утро</span>
     <span>репозиторий sudrfpractice</span>
     <span>ветка main</span>
-    <span>137 тестов, CI зелёный</span>
+    <span>142 теста, CI зелёный</span>
   </p>
 
   <div class="board">
@@ -796,8 +796,11 @@ footer {
       <ul class="tasks">
         <li><span class="task-id">6.1</span><span class="task-body">
           <strong>Фасеты</strong> — суд, картотека, судья, результат, даты,
-          суд первой инстанции.
-          <span class="criterion">выдачу можно сузить по каждому реквизиту строки</span>
+          суд первой инстанции. <span class="done-mark">Сделано:</span>
+          <code>harvester search</code>, индексы строились <code>CONCURRENTLY</code>,
+          чтобы не останавливать сбор. Поиск идёт на середине наполнения
+          и потому не притворяется полным: выдача сообщает долю собранного,
+          а «акта нет» означает заведомо непубликуемое, а не «не проверяли».
         </span></li>
         <li><span class="task-id">6.2</span><span class="task-body">
           <strong>Ссылки на нормы.</strong> <span class="done-mark">Наполовину

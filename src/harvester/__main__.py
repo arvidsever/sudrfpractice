@@ -74,6 +74,20 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("queue", help="показать состояние очереди")
     sub.add_parser("status", help="состояние сбора: темп, остаток, отказы")
 
+    find = sub.add_parser("search", help="искать по собранному индексу")
+    find.add_argument("--court", action="append", help="домен суда, можно повторять")
+    find.add_argument("--cartoteka", action="append", help="ключ картотеки")
+    find.add_argument("--judge", action="append", help="судья, точное имя из выдачи")
+    find.add_argument("--result", action="append", help="результат, точная формулировка")
+    find.add_argument("--lower-court", action="append", help="суд первой инстанции")
+    find.add_argument("--number", help="часть номера дела")
+    find.add_argument("--from", dest="decided_from", help="дата решения от, дд.мм.гггг")
+    find.add_argument("--to", dest="decided_to", help="дата решения до, дд.мм.гггг")
+    find.add_argument("--with-act", action="store_true", help="только с опубликованным актом")
+    find.add_argument("--facets", action="store_true", help="показать счётчики по фасетам")
+    find.add_argument("--limit", type=int, default=25)
+    find.add_argument("--offset", type=int, default=0)
+
     catch = sub.add_parser("catchup", help="добрать опубликованное за последние дни")
     catch.add_argument("--days", type=int, default=3, help="сколько дней назад, по умолчанию 3")
     catch.add_argument("--court", action="append")
@@ -178,6 +192,54 @@ def main(argv: list[str] | None = None) -> int:
             only_cartoteki=args.cartoteka,
         )
         print(f"заданий добавлено: {added}, уже было: {existed}")
+        return 0
+
+    if args.command == "search":
+        from datetime import datetime
+
+        from sqlalchemy import create_engine
+
+        from .config import settings
+        from .search import Query, run
+
+        def as_date(value):
+            return datetime.strptime(value, "%d.%m.%Y").date() if value else None
+
+        engine = create_engine(settings.database_url)
+        found = run(
+            engine,
+            Query(
+                courts=tuple(args.court or ()),
+                cartoteki=tuple(args.cartoteka or ()),
+                judges=tuple(args.judge or ()),
+                results=tuple(args.result or ()),
+                lower_courts=tuple(args.lower_court or ()),
+                number=args.number,
+                decided_from=as_date(args.decided_from),
+                decided_to=as_date(args.decided_to),
+                with_act=True if args.with_act else None,
+                limit=args.limit,
+                offset=args.offset,
+            ),
+            with_facets=args.facets,
+        )
+
+        print(f"найдено {found.total} дел из {len(found.rows)} показанных")
+        print("это поиск ПО СОБРАННОМУ: индекс ещё наполняется\n")
+        for row in found.rows:
+            act = {True: "акт есть", False: "акта нет", None: "акт не проверен"}[
+                row["act_published"]
+            ]
+            print(
+                f"  {row['case_number']:28} {row['court_domain']:16}"
+                f" {str(row['decision_date'] or '—'):12} {act}"
+            )
+            if row["judge"] or row["result"]:
+                print(f"       {row['judge'] or '—'} · {(row['result'] or '—')[:70]}")
+        for name, values in found.facets.items():
+            print(f"\n{name}:")
+            for value, count in values:
+                print(f"  {count:>8}  {value[:70]}")
         return 0
 
     if args.command == "status":

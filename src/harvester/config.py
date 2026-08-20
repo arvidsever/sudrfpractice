@@ -77,7 +77,10 @@ class Settings(BaseSettings):
     #: репозитории — сырьё, веса решателя, дампы базы. Ключи только
     #: из окружения, в файлы настроек они не попадают.
     s3_bucket: str = ""
-    s3_endpoint_url: str = ""
+    #: Адрес хранилища FirstVDS. Регион обязателен: подпись AWS v4 включает
+    #: его в вычисление, и без него boto3 отказывается отправлять запрос.
+    s3_endpoint_url: str = "https://s3.firstvds.ru"
+    s3_region: str = "ru-central1"
     s3_access_key: str = ""
     s3_secret_key: str = ""
 

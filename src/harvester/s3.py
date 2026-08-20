@@ -34,6 +34,7 @@ class S3Store:
         self._client = boto3.client(
             "s3",
             endpoint_url=endpoint_url or settings.s3_endpoint_url or None,
+            region_name=settings.s3_region or None,
             aws_access_key_id=access_key or settings.s3_access_key or None,
             aws_secret_access_key=secret_key or settings.s3_secret_key or None,
         )

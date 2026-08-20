@@ -72,6 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     sub.add_parser("queue", help="показать состояние очереди")
+    sub.add_parser("status", help="состояние сбора: темп, остаток, отказы")
 
     catch = sub.add_parser("catchup", help="добрать опубликованное за последние дни")
     catch.add_argument("--days", type=int, default=3, help="сколько дней назад, по умолчанию 3")
@@ -177,6 +178,24 @@ def main(argv: list[str] | None = None) -> int:
             only_cartoteki=args.cartoteka,
         )
         print(f"заданий добавлено: {added}, уже было: {existed}")
+        return 0
+
+    if args.command == "status":
+        from sqlalchemy import create_engine, func, select
+
+        from . import status as status_module
+        from .config import settings
+
+        engine = create_engine(settings.database_url)
+        with engine.connect() as connection:
+            now = connection.execute(select(func.now())).scalar_one()
+        print(
+            status_module.render(
+                status_module.collect(engine, now=now),
+                status_module.by_court(engine),
+                now=now,
+            )
+        )
         return 0
 
     if args.command == "queue":

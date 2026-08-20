@@ -93,6 +93,10 @@ def main(argv: list[str] | None = None) -> int:
     catch.add_argument("--court", action="append")
     catch.add_argument("--pilot", action="store_true", help="без требования ночного окна")
 
+    dump_cmd = sub.add_parser("dump", help="снять дамп базы и положить в хранилище")
+    dump_cmd.add_argument("--keep", type=int, default=7, help="сколько дампов держать")
+    dump_cmd.add_argument("--force", action="store_true", help="снять, даже если за сегодня есть")
+
     archive = sub.add_parser("archive", help="выгрузить сырьё и веса в объектное хранилище")
     archive.add_argument("--dry-run", action="store_true", help="показать, но не заливать")
     archive.add_argument("--model", action="store_true", help="залить и веса решателя капчи")
@@ -192,6 +196,17 @@ def main(argv: list[str] | None = None) -> int:
             only_cartoteki=args.cartoteka,
         )
         print(f"заданий добавлено: {added}, уже было: {existed}")
+        return 0
+
+    if args.command == "dump":
+        import logging
+
+        from .dump import make_dump
+        from .s3 import S3Store
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        key = make_dump(S3Store(), keep=args.keep, force=args.force)
+        print(f"дамп выгружен: {key}" if key else "дамп за сегодня уже есть")
         return 0
 
     if args.command == "search":

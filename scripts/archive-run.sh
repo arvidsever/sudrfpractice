@@ -20,5 +20,8 @@ LOG="logs/archive-$(date +%Y-%m-%d).log"
 {
   echo "=== старт $(date '+%F %T') ==="
   .venv/bin/python -m harvester archive
+  # Дамп базы. Команда сама выходит, если за сегодня он уже снят, —
+  # поэтому звать её каждые шесть часов безопасно, а получается раз в сутки.
+  .venv/bin/python -m harvester dump
   echo "=== стоп  $(date '+%F %T') ==="
 } >> "$LOG" 2>&1

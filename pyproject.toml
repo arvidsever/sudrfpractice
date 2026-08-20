@@ -21,6 +21,12 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.8",
 ]
+# Отдельной группой: torch с моделью весят гигабайты, а нужны только
+# для этапа 6 — сбору и разбору они ни к чему.
+embeddings = [
+    "sentence-transformers>=3.3",
+    "torch>=2.5",
+]
 
 [build-system]
 requires = ["hatchling"]

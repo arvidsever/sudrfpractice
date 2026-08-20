@@ -48,6 +48,11 @@ python -m harvester status
 минуту простоя, и `caffeinate` не помогает: он держит машину, только
 пока прогон уже идёт.
 
+**Выгрузка сырья.** `launchd`-задание `ru.sudrfpractice.archive` раз
+в шесть часов отправляет сырьё в S3 FirstVDS, бакет `sudrfcorpus`.
+Ключи — в `.env`, он в `.gitignore`. Логи — `logs/archive-YYYY-MM-DD.log`.
+Разбор — [`storage.md`](storage.md).
+
 **Проверка сервера.** На `155.212.173.41` в cron дважды в сутки крутится
 `/root/court-check.sh`, пишет в `/root/court-check.log`. Ловит момент,
 когда ГАС перестанет блокировать адрес.

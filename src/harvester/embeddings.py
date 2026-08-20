@@ -8,6 +8,9 @@ MLX выбран замером: 10 860 токенов в секунду про�
 * **MLX считает лениво.** Без `mx.eval` возвращается обещание, а не
   результат: первый замер показал ускорение в 480 раз, потому что мерил
   составление списка дел;
+* **MLX ставится только на Apple Silicon**, поэтому импортируется внутри
+  `embed()`, а не на уровне модуля: иначе от него зависел бы сам импорт
+  `harvester.embeddings`, и на линуксовом CI не собирались бы даже тесты;
 * **векторы MLX и PyTorch не взаимозаменяемы.** Косинус между путями
   0,996 по медиане, но у пятой части кусков расходится ближайший сосед.
   Значит путь один и на документы, и на запросы — отсюда `embed()`
@@ -18,7 +21,6 @@ from __future__ import annotations
 
 import logging
 
-import mlx.core as mx
 import numpy as np
 from sqlalchemy import Engine
 from sqlalchemy import text as sql
@@ -48,6 +50,7 @@ def _load():
 
 def embed(texts: list[str]) -> np.ndarray:
     """Единая точка входа: и документы, и запросы считаются здесь."""
+    import mlx.core as mx
     from mlx_embeddings import generate
 
     model, tokenizer = _load()

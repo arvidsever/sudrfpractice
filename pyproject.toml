@@ -26,6 +26,11 @@ dev = [
 embeddings = [
     "sentence-transformers>=3.3",
     "torch>=2.5",
+    # MLX — родной для Apple Silicon, в 2,6 раза быстрее PyTorch на MPS.
+    # Держим рядом, но по умолчанию не используем: векторы у него другие,
+    # см. roadmap 6.3.
+    "mlx>=0.32",
+    "mlx-embeddings>=0.0.3",
 ]
 
 [build-system]

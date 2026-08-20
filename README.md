@@ -58,7 +58,7 @@ swift run sudrf-cli export-directories --what cartoteki > data/directories/carto
 
 ```
 src/harvester/
-  config.py       правила доступа: дроссель, UA, ночное окно, потолок запросов
+  config.py       правила доступа: два дросселя, UA, окно обхода, потолок запросов
   directories.py  справочники судов и картотек + то, что знает только харвестер
   encoding.py     windows-1251 — сквозное требование платформы
   urls.py         сборка URL перечня, акта, карточки

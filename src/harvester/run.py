@@ -66,6 +66,32 @@ def _cooling_courts() -> set[str]:
     return {host for host, until in _COOLDOWNS.items() if until > now}
 
 
+def _cooldown_left(domain: str) -> float:
+    """Сколько секунд ещё нельзя трогать этот суд."""
+    import time
+
+    return max(0.0, _COOLDOWNS.get(domain, 0.0) - time.monotonic())
+
+
+def _wait_out_cooldown(domain: str, stop: threading.Event) -> bool:
+    """Дождаться конца паузы у суда. `False` — ждать больше нечего, уходим.
+
+    Раньше поток на паузе просто заканчивался: ночной прогон всё равно
+    умирал к утру, и следующий запуск начинал с чистого листа. При
+    круглосуточной работе процесс живёт сутками, и такой уход означал бы,
+    что суд, однажды попросивший отступить, больше не собирается никогда.
+    20.08.2026 так и вышло: к семи утра из десяти судов работал один,
+    а у девяти оставалось по шестьсот несобранных окон.
+    """
+    while not stop.is_set():
+        left = _cooldown_left(domain)
+        if left <= 0:
+            return True
+        log.info("%s: пауза ещё %.0f мин, поток ждёт", domain, left / 60)
+        stop.wait(min(left, 60.0))
+    return False
+
+
 def _work_one_court(
     engine,
     domain: str,
@@ -77,8 +103,7 @@ def _work_one_court(
 ) -> None:
     done = 0
     while not stop.is_set() and (limit is None or done < limit):
-        if domain in _cooling_courts():
-            log.info("%s: на паузе, поток останавливается до следующего прогона", domain)
+        if not _wait_out_cooldown(domain, stop):
             return
 
         task = task_queue.claim(engine, courts=[domain])
@@ -111,13 +136,23 @@ def _work_one_court(
             # а следом за ним и все остальные окна этого суда.
             task_queue.complete(engine, task, status="pending", refund=True)
             log.info("%s: %s — суд отложен до завтра", domain, exc)
-            return
+            return  # потолок снимет полночь, а её ждёт уже launchd
         except CourtOnCooldown as exc:
             # Не вина окна: суд просто попросил отступить. Возвращаем задание
-            # в очередь, не тратя попытку впустую на следующем заходе.
+            # в очередь, не тратя попытку, и ждём — а не уходим насовсем.
+            # Пока прогон был ночным, уйти было не жалко: процесс всё равно
+            # умирал к утру. Круглосуточный процесс живёт сутками, и суд,
+            # раз попросивший паузу, больше не собирался бы никогда:
+            # 20.08 из десяти судов к утру работал один.
             task_queue.complete(engine, task, status="throttled", error=str(exc), refund=True)
             totals.add(throttled=True)
-            return
+            if _cooldown_left(domain) <= 0:
+                # Пауза не проставлена — ждать нечего и незачем: без этой
+                # проверки поток брал бы то же окно по кругу. Статус
+                # `throttled` очередь снова выдаёт, так что круг был бы вечным.
+                log.info("%s: %s — поток уходит", domain, exc)
+                return
+            continue
         except Exception as exc:  # noqa: BLE001 — одно окно не должно ронять прогон
             log.exception(
                 "%s %s %s: окно не собралось",

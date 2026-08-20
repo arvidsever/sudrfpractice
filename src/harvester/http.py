@@ -246,7 +246,15 @@ class CourtClient:
 
         token = solver.cached(host) if solver is not None else None
         response = self.get(_with_token(url, token) if token else url, arm_back_off=arm_back_off)
-        if classify(response.text).verdict is not Verdict.CAPTCHA_GATE:
+        verdict = classify(response.text).verdict
+        # UNKNOWN на капча-суде — это тоже ворота, просто без слов. С истёкшим
+        # токеном платформа тихо отдаёт форму поиска вместо выдачи: ни таблицы,
+        # ни блока ошибки, ни фразы «проверочный код», по которой ворота
+        # опознаются. 20.08.2026 на этом умерло больше тысячи окон — все
+        # на первой странице и все у трёх капчевых судов.
+        if verdict is not Verdict.CAPTCHA_GATE and not (
+            verdict is Verdict.UNKNOWN and solver is not None
+        ):
             return response
         if solver is None or self.captcha_form_url is None:
             return response

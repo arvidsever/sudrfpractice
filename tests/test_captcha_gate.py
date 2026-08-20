@@ -121,3 +121,17 @@ def test_throttle_survives_a_new_client() -> None:
     finally:
         _LAST_REQUEST.clear()
         first.close()
+
+
+def test_silent_form_is_treated_as_a_gate(monkeypatch) -> None:
+    """С истёкшим токеном платформа тихо отдаёт форму поиска вместо выдачи.
+
+    Ни таблицы, ни блока ошибки, ни фразы «проверочный код», по которой
+    ворота опознаются, — вердикт `unknown`. 20.08.2026 на этом умерло
+    больше тысячи окон, все на первой странице и все у капчевых судов:
+    решатель не звали, потому что ворот никто не увидел.
+    """
+    from harvester.guards import Verdict, classify
+
+    form = "<html><body><div class='col col_content'>СУДЕБНОЕ ДЕЛОПРОИЗВОДСТВО</div></body></html>"
+    assert classify(form).verdict is Verdict.UNKNOWN, "фикстура должна быть неопознанной"

@@ -206,3 +206,46 @@ def test_court_on_cooldown_does_not_spend_an_attempt(db_settings, monkeypatch) -
     spent = [row for row in rows if row.attempts > 0]
     assert not spent, "придержание не тратит попытку"
     assert "throttled" in {row.status for row in rows}
+
+
+def test_thread_waits_out_the_pause_instead_of_leaving() -> None:
+    """Суд на паузе — причина подождать, а не разойтись по домам.
+
+    Пока прогон был ночным, уход был безобиден: процесс всё равно умирал
+    к утру. Круглосуточный процесс живёт сутками, и 20.08.2026 из этого
+    вышло, что к семи утра из десяти судов работал один, а у девяти
+    оставалось по шестьсот несобранных окон.
+    """
+    import threading
+    import time
+
+    from harvester.http import _COOLDOWNS
+    from harvester.run import _wait_out_cooldown
+
+    domain = "5kas.sudrf.ru"
+    stop = threading.Event()
+    _COOLDOWNS[domain] = time.monotonic() + 0.3
+    try:
+        started = time.monotonic()
+        assert _wait_out_cooldown(domain, stop) is True, "дождавшись паузы, поток работает дальше"
+        assert time.monotonic() - started >= 0.3, "вернулся раньше, чем кончилась пауза"
+    finally:
+        _COOLDOWNS.pop(domain, None)
+
+
+def test_waiting_thread_still_obeys_the_stop_signal() -> None:
+    """Ожидание не должно пережить остановку прогона."""
+    import threading
+    import time
+
+    from harvester.http import _COOLDOWNS
+    from harvester.run import _wait_out_cooldown
+
+    domain = "9kas.sudrf.ru"
+    stop = threading.Event()
+    stop.set()
+    _COOLDOWNS[domain] = time.monotonic() + 3600
+    try:
+        assert _wait_out_cooldown(domain, stop) is False
+    finally:
+        _COOLDOWNS.pop(domain, None)

@@ -24,10 +24,40 @@ from ..models import ActText
 EMPTY_DOCUMENT_MARKER = "ПУСТОЙ ДОКУМЕНТ"
 
 
+#: Насколько полно абзацы должны покрывать текст узла, чтобы им верить.
+#: Если разметка вдруг окажется другой и часть текста будет лежать мимо
+#: `<p>`, разбор по абзацам молча потеряет её — а терять нельзя.
+_PARAGRAPH_COVERAGE = 0.95
+
+
 def _plain_text(node: Node) -> str:
+    """Текст узла: пробелы схлопнуты, абзацы сохранены переводом строки.
+
+    Абзацы здесь не для красоты. Акт — это 13 тысяч знаков без единого
+    переноса, если их выбросить, и дальше его нечем резать на куски под
+    эмбеддинги: предложения в юридическом тексте наивным разделителем
+    не берутся («ст. 333 ГК РФ», «п. 1 ч. 2», «г. Пятигорск»). Разметка
+    же даёт готовые границы — у типового определения их около полусотни.
+
+    Если абзацы покрывают не весь текст узла, берём узел целиком: лучше
+    потерять структуру, чем часть акта.
+    """
     for junk in node.css("script, style"):
         junk.decompose()
-    return " ".join(node.text(separator=" ").split())
+
+    whole = " ".join(node.text(separator=" ").split())
+
+    paragraphs = [
+        line for line in (" ".join(p.text(separator=" ").split()) for p in node.css("p")) if line
+    ]
+    if not paragraphs:
+        return whole
+
+    joined = "\n".join(paragraphs)
+    covered = len(joined.replace("\n", " "))
+    if covered < len(whole) * _PARAGRAPH_COVERAGE:
+        return whole
+    return joined
 
 
 def parse_act(html: str, *, number: str, text_number: int = 1) -> ActText:

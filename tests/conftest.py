@@ -83,11 +83,6 @@ def temporarily_unavailable() -> str:
 
 
 @pytest.fixture(scope="session")
-def act_doc() -> str:
-    return fixture("ksoyu_act_doc")
-
-
-@pytest.fixture(scope="session")
 def case_card() -> str:
     return fixture("ksoyu_case_card")
 

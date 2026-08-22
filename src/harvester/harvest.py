@@ -50,10 +50,6 @@ class HarvestResult:
     status: str
     note: str | None = None
 
-    @property
-    def is_complete(self) -> bool:
-        return self.status == "complete"
-
 
 def harvest_listing(
     court: Court,

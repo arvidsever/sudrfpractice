@@ -6,14 +6,12 @@
 после любого из этого следующий запуск обязан продолжить с того же места,
 а не начать сначала и не пропустить окно молча.
 
-Отсюда три решения:
+Отсюда два решения:
 
 * задание захватывается атомарно, через `FOR UPDATE SKIP LOCKED`. Два
   процесса могут работать одновременно и не возьмут одно окно дважды;
 * захваченное задание помечается `running` сразу, а не после успеха.
-  Прерванный прогон оставляет видимый след, а не исчезает;
-* суд на паузе пропускается, и берётся окно другого суда. Пауза —
-  причина заняться другим, а не остановиться.
+  Прерванный прогон оставляет видимый след, а не исчезает.
 """
 
 from __future__ import annotations
@@ -22,7 +20,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import Engine, func, select, text, update
+from sqlalchemy import Engine, func, text, update
 
 from .db.schema import harvest_task
 
@@ -43,22 +41,14 @@ class Task:
     attempts: int
 
 
-def claim(engine: Engine, *, courts: list[str] | None = None, skip: set[str] | None = None):
-    """Захватить следующее незакрытое окно. `None` — брать нечего.
-
-    `skip` — суды на паузе: их окна не берём, но и не портим, они просто
-    достанутся следующему заходу.
-    """
+def claim(engine: Engine, *, courts: list[str] | None = None):
+    """Захватить следующее незакрытое окно. `None` — брать нечего."""
     conditions = ["status IN ('pending', 'failed', 'throttled')", "attempts < :max_attempts"]
     params: dict[str, object] = {"max_attempts": MAX_ATTEMPTS}
 
     if courts:
         conditions.append("court_domain = ANY(:courts)")
         params["courts"] = list(courts)
-    if skip:
-        conditions.append("court_domain <> ALL(:skip)")
-        params["skip"] = list(skip)
-
     statement = text(
         f"""
         UPDATE harvest_task SET status = 'running', attempts = attempts + 1,
@@ -129,15 +119,3 @@ def release_stale(engine: Engine) -> int:
             .values(status="pending", updated_at=func.now())
         )
     return result.rowcount
-
-
-def summary(engine: Engine) -> list[tuple[str, int]]:
-    with engine.connect() as connection:
-        return [
-            (row.status, row.count)
-            for row in connection.execute(
-                select(harvest_task.c.status, func.count().label("count"))
-                .group_by(harvest_task.c.status)
-                .order_by(func.count().desc())
-            )
-        ]

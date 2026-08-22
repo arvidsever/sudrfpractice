@@ -181,15 +181,13 @@ def _measure_by_chunks(
     опубликованных актов.
     """
     pending = list(reversed(split_by_years(CORPUS_START, today or date.today())))
-    total, probes, deepest = 0, 0, 0
+    total, probes = 0, 0
     raw = first_raw
 
     while pending:
         chunk_from, chunk_to = pending.pop()
         window = f"{chunk_from:%d.%m.%Y}\u2013{chunk_to:%d.%m.%Y}"
         span = (chunk_to - chunk_from).days + 1
-        deepest = max(deepest, span)
-
         if probes >= _MAX_PROBES:
             return Measurement(
                 court.domain,

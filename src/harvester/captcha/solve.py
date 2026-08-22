@@ -13,8 +13,6 @@ TTA — усреднение softmax по семи малым сдвигам в�
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import numpy as np
 
 from .model import ARCH, CaptchaModel
@@ -29,14 +27,6 @@ TTA_SHIFTS: tuple[tuple[int, int], ...] = (
     (0, 1),
     (0, -1),
 )
-
-
-@dataclass(frozen=True, slots=True)
-class Solution:
-    text: str
-    #: Уверенность = минимум по головам: капча верна только целиком.
-    confidence: float
-    per_digit: tuple[float, ...]
 
 
 def _conv(inp: np.ndarray, weight: np.ndarray, bias: np.ndarray) -> np.ndarray:
@@ -109,18 +99,6 @@ def _shift(vector: np.ndarray, dx: int, dy: int) -> np.ndarray:
             src_y0 : src_y0 + rows, src_x0 : src_x0 + cols
         ]
     return out
-
-
-def read_captcha(model: CaptchaModel, vector: np.ndarray, tta: bool = True) -> Solution:
-    """Распознать капчу. Уверенность — минимум по головам."""
-    probs = probabilities(model, vector, tta)
-    digits = probs.argmax(axis=1)
-    per_digit = probs.max(axis=1)
-    return Solution(
-        text="".join(str(int(d)) for d in digits),
-        confidence=float(per_digit.min()),
-        per_digit=tuple(float(p) for p in per_digit),
-    )
 
 
 def candidates(

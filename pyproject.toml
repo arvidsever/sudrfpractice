@@ -8,7 +8,7 @@ dependencies = [
     "selectolax>=0.3.27",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
-    "psycopg[binary,pool]>=3.2",
+    "psycopg[binary]>=3.2",
     "sqlalchemy>=2.0",
     "alembic>=1.14",
     "zstandard>=0.23",
@@ -21,14 +21,8 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.8",
 ]
-# Отдельной группой: torch с моделью весят гигабайты, а нужны только
-# для этапа 6 — сбору и разбору они ни к чему.
+# MLX ставится только на Apple Silicon, поэтому эмбеддинги — отдельная группа.
 embeddings = [
-    "sentence-transformers>=3.3",
-    "torch>=2.5",
-    # MLX — родной для Apple Silicon, в 2,6 раза быстрее PyTorch на MPS.
-    # Держим рядом, но по умолчанию не используем: векторы у него другие,
-    # см. roadmap 6.3.
     "mlx>=0.32",
     "mlx-embeddings>=0.0.3",
 ]

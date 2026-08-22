@@ -29,9 +29,6 @@ class _Store:
     def put_file(self, key: str, path: Path) -> None:
         self.put.append(key)
 
-    def get_file(self, key: str, path: Path) -> None:  # pragma: no cover
-        raise NotImplementedError
-
 
 def _raw(tmp_path: Path) -> Path:
     root = tmp_path / "raw"

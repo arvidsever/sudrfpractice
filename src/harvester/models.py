@@ -20,9 +20,6 @@ class ActLink(BaseModel):
     text_number: int = 1
     #: Ярлык из `TITLE`: «Постановления», «Решения», «Определение».
     kind: str | None = None
-    #: `delo_id`/`new` из самой ссылки — портал ставит там длинную пару.
-    delo_id: str | None = None
-    new: str | None = None
     url: str
 
 
@@ -55,19 +52,6 @@ class ListingPage(BaseModel):
     page: int
     total: int
     rows: list[CaseRow]
-
-
-class ActText(BaseModel):
-    """Текст акта со страницы `name_op=doc`."""
-
-    number: str
-    text_number: int
-    text: str
-
-    @property
-    def is_empty_document(self) -> bool:
-        """«ПУСТОЙ ДОКУМЕНТ» — признак конца перебора `text_number`, не ошибка."""
-        return "ПУСТОЙ ДОКУМЕНТ" in self.text
 
 
 class Participant(BaseModel):

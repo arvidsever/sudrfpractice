@@ -56,7 +56,7 @@ def test_publication_window_guarantees_act_links(listing_acts: str) -> None:
     assert link.text_number == 1
     assert link.kind == "Постановления"
     # Портал ставит в ссылке ДЛИННУЮ пару, хотя запрос мог уйти с короткой.
-    assert (link.delo_id, link.new) == ("2800001", "2800001")
+    assert "&delo_id=2800001&new=2800001&" in link.url
     assert link.url.startswith(f"https://{DOMAIN}/modules.php?")
 
 

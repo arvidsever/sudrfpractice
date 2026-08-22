@@ -52,7 +52,3 @@ class S3Store:
         """Удалить объект. Нужен только для ротации дампов: сырьё
         не удаляется никогда — оно адресуется содержимым и дороже базы."""
         self._client.delete_object(Bucket=self.bucket, Key=key)
-
-    def get_file(self, key: str, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._client.download_file(self.bucket, key, str(path))

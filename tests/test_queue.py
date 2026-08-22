@@ -69,16 +69,6 @@ def test_newest_windows_go_first(db_settings) -> None:
     assert task.window_from == date(2026, 3, 1)
 
 
-def test_court_on_pause_is_skipped_not_broken(db_settings) -> None:
-    """Пауза — причина заняться другим судом, а не остановиться."""
-    engine = _seed(db_settings, courts=("5kas.sudrf.ru", "9kas.sudrf.ru"))
-    task = task_queue.claim(engine, skip={"5kas.sudrf.ru"})
-    engine.dispose()
-
-    assert task is not None
-    assert task.court_domain == "9kas.sudrf.ru"
-
-
 def test_interrupted_run_returns_to_the_queue(db_settings) -> None:
     """`running` живёт только пока живёт прогон. Без уборки очередь
     медленно опустела бы в никуда."""
@@ -120,17 +110,6 @@ def test_done_window_is_not_taken_again(db_settings) -> None:
         remaining.append(nxt.id)
     engine.dispose()
     assert task.id not in remaining
-
-
-def test_summary_counts_by_status(db_settings) -> None:
-    engine = _seed(db_settings)
-    task = task_queue.claim(engine)
-    task_queue.complete(engine, task, status="done", cases_found=1)
-    counts = dict(task_queue.summary(engine))
-    engine.dispose()
-
-    assert counts["done"] == 1
-    assert counts["pending"] == 2
 
 
 def test_end_of_night_returns_the_window_untouched(db_settings, monkeypatch) -> None:

@@ -20,6 +20,7 @@ MLX выбран замером: 10 860 токенов в секунду про�
 from __future__ import annotations
 
 import logging
+from functools import cache
 
 import numpy as np
 from sqlalchemy import Engine
@@ -34,18 +35,13 @@ MODEL = "Qwen/Qwen3-Embedding-0.6B"
 #: Замерено: 64 медленнее 32, и 128 тоже.
 BATCH = 32
 
-_model = None
-_tokenizer = None
 
-
+@cache
 def _load():
-    global _model, _tokenizer
-    if _model is None:
-        from mlx_embeddings import load
+    from mlx_embeddings import load
 
-        log.info("загружаю %s", MODEL)
-        _model, _tokenizer = load(MODEL)
-    return _model, _tokenizer
+    log.info("загружаю %s", MODEL)
+    return load(MODEL)
 
 
 def embed(texts: list[str]) -> np.ndarray:

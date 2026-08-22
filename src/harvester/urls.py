@@ -147,28 +147,6 @@ def whole_cartoteka_url(court: Court, cartoteka: Cartoteka, page: int = 1) -> st
     return f"https://{court.domain}/modules.php?{_query(pairs)}"
 
 
-def act_url(court: Court, number: str, delo_id: str, new: str, text_number: int = 1) -> str:
-    """URL текста судебного акта.
-
-    `delo_id`/`new` берутся ИЗ ССЫЛКИ в строке выдачи, а не из справочника:
-    портал ставит там длинную пару (`2800001`), даже если запрос ушёл с короткой.
-
-    `text_number` — порядковый номер акта внутри дела, с 1. Несколько актов
-    на дело возможны, но редки; на деле с одним актом `text_number=2` отдаёт
-    «ПУСТОЙ ДОКУМЕНТ» — это признак конца перебора, а не ошибка.
-    """
-    pairs = [
-        ("name", "sud_delo"),
-        ("srv_num", SRV_NUM),
-        ("name_op", "doc"),
-        ("number", number),
-        ("delo_id", delo_id),
-        ("new", new),
-        ("text_number", str(text_number)),
-    ]
-    return f"https://{court.domain}/modules.php?{_query(pairs)}"
-
-
 def card_url(court: Court, case_id: str, case_uid: str, delo_id: str, new: str) -> str:
     """URL карточки дела. Нужна только там, где важны движение, полный состав
     сторон и реквизиты нижестоящего суда — реквизиты и текст акта берутся

@@ -25,10 +25,6 @@ class Settings(BaseSettings):
     #: и архив избавляет от повторного обхода судов.
     raw_root: Path = REPO_ROOT / "raw"
 
-    #: Корпус капч. Каталог приложения Sudrf НЕ используем: у него свой
-    #: потолок и FIFO-подрезка, см. docs/captcha-corpus.md.
-    captcha_corpus: Path = REPO_ROOT / "data" / "captcha-training" / "solved"
-
     #: User-Agent обязателен: с дефолтным `curl/…` WAF отдаёт 403
     #: и «Данный запрос некорректен» (§1 грамматики). Контакт в UA — намеренно.
     #:

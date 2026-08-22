@@ -18,6 +18,7 @@ import httpx
 from .config import Settings
 from .config import settings as default_settings
 from .encoding import decode
+from .urls import with_captcha
 
 log = logging.getLogger("harvester.http")
 
@@ -245,7 +246,10 @@ class CourtClient:
         solver = self.captcha
 
         token = solver.cached(host) if solver is not None else None
-        response = self.get(_with_token(url, token) if token else url, arm_back_off=arm_back_off)
+        response = self.get(
+            with_captcha(url, token.text, token.captchaid) if token else url,
+            arm_back_off=arm_back_off,
+        )
         verdict = classify(response.text).verdict
         # UNKNOWN на капча-суде — это тоже ворота, просто без слов. С истёкшим
         # токеном платформа тихо отдаёт форму поиска вместо выдачи: ни таблицы,
@@ -268,7 +272,7 @@ class CourtClient:
 
         readings = solver.read(challenge, limit=attempts)
         for number, (text, likelihood) in enumerate(readings, start=1):
-            candidate = with_captcha_params(url, text, challenge.captchaid)
+            candidate = with_captcha(url, text, challenge.captchaid)
             response = self.get(candidate, arm_back_off=arm_back_off)
             if classify(response.text).verdict is not Verdict.CAPTCHA_GATE:
                 solver.accept(host, challenge, text)
@@ -292,16 +296,6 @@ class CourtClient:
         """Сколько запросов сделано к каждому суду СЕГОДНЯ."""
         today = _today()
         return {host: n for (host, day), n in self._requests_today.items() if day == today}
-
-
-def _with_token(url: str, token) -> str:
-    return with_captcha_params(url, token.text, token.captchaid)
-
-
-def with_captcha_params(url: str, text: str, captchaid: str) -> str:
-    from .urls import with_captcha
-
-    return with_captcha(url, text, captchaid)
 
 
 def _cooldown_after_429(response: Response, settings: Settings) -> float:

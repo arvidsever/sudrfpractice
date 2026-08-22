@@ -59,13 +59,6 @@ class RunTotals:
             self.throttled += int(throttled)
 
 
-def _cooling_courts() -> set[str]:
-    import time
-
-    now = time.monotonic()
-    return {host for host, until in _COOLDOWNS.items() if until > now}
-
-
 def _cooldown_left(domain: str) -> float:
     """Сколько секунд ещё нельзя трогать этот суд."""
     import time

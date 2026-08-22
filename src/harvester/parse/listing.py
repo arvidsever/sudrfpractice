@@ -52,8 +52,6 @@ def _act_links(cell: Node, domain: str) -> list[ActLink]:
                 number=number,
                 text_number=int(raw_text_number) if raw_text_number else 1,
                 kind=kind or None,
-                delo_id=_query_value(href, "delo_id"),
-                new=_query_value(href, "new"),
                 url=urljoin(f"https://{domain}/", href),
             )
         )

@@ -19,7 +19,6 @@ from ..models import CaseCard, CaseRow
 from ..raw import RawRecord
 from .schema import (
     act,
-    act_text,
     appeal,
     case,
     harvest_run,
@@ -183,10 +182,6 @@ def close_run(
             finished_at=func.now(),
         )
     )
-
-
-def act_text_count(connection: Connection) -> int:
-    return connection.execute(select(func.count()).select_from(act_text)).scalar_one()
 
 
 def save_card(connection: Connection, case_pk: int, card: CaseCard) -> None:

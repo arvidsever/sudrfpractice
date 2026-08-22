@@ -99,7 +99,7 @@ def _split_long(paragraph: str, limit: int = MAX_CHARS) -> list[str]:
     return forced
 
 
-def chunk_act(text: str, *, target: int = TARGET_CHARS, overlap: bool = True) -> list[Chunk]:
+def chunk_act(text: str) -> list[Chunk]:
     """Собрать абзацы в куски целевого размера.
 
     Возвращает пустой список для пустого текста: нечего резать — нечего
@@ -144,11 +144,11 @@ def chunk_act(text: str, *, target: int = TARGET_CHARS, overlap: bool = True) ->
             )
         # Перекрытие: последний абзац переходит в следующий кусок, чтобы
         # мысль, разорванная швом, нашлась хотя бы одним из них.
-        current = current[-1:] if overlap and len(current) > 1 else []
+        current = current[-1:] if len(current) > 1 else []
         length = sum(len(piece) for _, piece in current)
 
     for number, piece in paragraphs:
-        if current and length + len(piece) > target:
+        if current and length + len(piece) > TARGET_CHARS:
             flush()
             # Перекрытие полезно, но не любой ценой: если перенесённый
             # абзац сам крупный, вместе с новым он вылезет за потолок.

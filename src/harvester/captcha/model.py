@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -41,10 +40,6 @@ class CaptchaModel:
     bd: np.ndarray  # (HID,)
     wh: np.ndarray  # (HEADS * NC, HID)
     bh: np.ndarray  # (HEADS * NC,)
-    threshold: float
-    trained_on: int
-    held_out_digit_accuracy: float | None
-    held_out_full_tta: float | None
 
 
 def load_model(path: str | Path | None = None) -> CaptchaModel:
@@ -76,13 +71,4 @@ def load_model(path: str | Path | None = None) -> CaptchaModel:
         bd=arr("bd", (hid,)),
         wh=arr("wh", (heads * nc, hid)),
         bh=arr("bh", (heads * nc,)),
-        threshold=float(raw.get("threshold", 0.4)),
-        trained_on=int(raw.get("trainedOn", 0)),
-        held_out_digit_accuracy=raw.get("heldOutDigitAcc"),
-        held_out_full_tta=raw.get("heldOutFullTTA"),
     )
-
-
-@lru_cache(maxsize=2)
-def cached_model(path: str | None = None) -> CaptchaModel:
-    return load_model(path)

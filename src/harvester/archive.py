@@ -31,7 +31,6 @@ log = logging.getLogger("harvester.archive")
 #: раздельно: сырьё читают часто, веса — почти никогда.
 PREFIX_RAW = "raw/"
 PREFIX_MODEL = "model/"
-PREFIX_DUMP = "dump/"
 
 
 class ObjectStore(Protocol):
@@ -40,8 +39,6 @@ class ObjectStore(Protocol):
     def list_keys(self, prefix: str) -> Iterable[str]: ...
 
     def put_file(self, key: str, path: Path) -> None: ...
-
-    def get_file(self, key: str, path: Path) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,10 +53,6 @@ class PushResult:
     uploaded: int
     skipped: int
     bytes_sent: int
-
-    @property
-    def total(self) -> int:
-        return self.uploaded + self.skipped
 
 
 def raw_uploads(raw_root: Path) -> Iterator[Upload]:

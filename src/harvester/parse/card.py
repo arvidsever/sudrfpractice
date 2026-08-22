@@ -60,7 +60,39 @@ _LOWER_FIELDS = {
 
 
 def _text(node: Node) -> str:
+    """Текст узла одной строкой. Для полей карточки — ФИО, результата,
+    ячеек таблиц — переводы строки не нужны и мешали бы разбору."""
     return " ".join(node.text(separator=" ").split())
+
+
+#: Насколько полно абзацы должны покрывать текст, чтобы им верить. Если
+#: разметка окажется другой и часть текста ляжет мимо `<p>`, разбор
+#: по абзацам молча потеряет её — а терять нельзя.
+_PARAGRAPH_COVERAGE = 0.95
+
+
+def _text_with_paragraphs(node: Node) -> str:
+    """Текст акта: пробелы схлопнуты, абзацы сохранены переводом строки.
+
+    Только для текста акта, не для полей. Без абзацев акт — это 13 тысяч
+    знаков одной строкой: показывать такое человеку нельзя, а резать
+    на куски под эмбеддинги нечем, потому что предложения в юридическом
+    тексте наивным разделителем не берутся — «ст. 333 ГК РФ» рубится
+    по точке. В разметке структура готова: у типового определения около
+    полусотни `<p>`.
+
+    Если абзацы покрывают не весь текст, берётся узел целиком: лучше
+    остаться без структуры, чем без части акта.
+    """
+    whole = _text(node)
+    paragraphs = [line for line in (_text(p) for p in node.css("p")) if line]
+    if not paragraphs:
+        return whole
+
+    joined = "\n".join(paragraphs)
+    if len(joined.replace("\n", " ")) < len(whole) * _PARAGRAPH_COVERAGE:
+        return whole
+    return joined
 
 
 def _tables(tree: HTMLParser) -> dict[str, Node]:
@@ -119,7 +151,7 @@ def act_texts(tree: HTMLParser) -> dict[int, str]:
             break
         for junk in block.css("script, style"):
             junk.decompose()
-        texts[number] = _text(block)
+        texts[number] = _text_with_paragraphs(block)
     return texts
 
 

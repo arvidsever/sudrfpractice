@@ -111,3 +111,23 @@ def test_every_card_carries_its_act_text(
         card = parse_card(html)
         assert card.has_act_text
         assert len(card.act_texts[1]) > 1000
+
+
+def test_act_text_keeps_paragraphs_but_fields_do_not(case_card: str) -> None:
+    """Абзацы нужны тексту акта и мешают полям.
+
+    Без них акт — 13 тысяч знаков одной строкой, и резать его на куски
+    нечем. Но те же переводы строки в ФИО судьи или в результате сломали
+    бы разбор, поэтому поля остаются в одну строку.
+    """
+    from selectolax.parser import HTMLParser
+
+    from harvester.parse.card import act_texts, parse_card
+
+    texts = act_texts(HTMLParser(case_card))
+    assert texts, "фикстура должна нести хотя бы один текст акта"
+    assert "\n" in next(iter(texts.values())), "текст акта потерял абзацы"
+
+    card = parse_card(case_card)
+    fields = [card.judge, card.result, *(p.name for p in card.participants)]
+    assert all("\n" not in value for value in fields if value), "перевод строки в поле карточки"

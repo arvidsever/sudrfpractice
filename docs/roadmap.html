@@ -412,7 +412,7 @@ footer {
     Ниже — что осталось, в порядке зависимостей.
   </p>
   <p class="stamp">
-    <span>20.08.2026, утро</span>
+    <span>22.08.2026</span>
     <span>репозиторий sudrfpractice</span>
     <span>ветка main</span>
     <span>150 тестов</span>
@@ -427,7 +427,7 @@ footer {
     <div class="tile">
       <span class="tile-label">Очередь индекса</span>
       <span class="tile-value">6 640</span>
-      <span class="tile-note">окон, из них 1 570 закрыто</span>
+      <span class="tile-note">окон, из них 5 754 закрыто</span>
     </div>
     <div class="tile">
       <span class="tile-label">Капча</span>
@@ -435,9 +435,9 @@ footer {
       <span class="tile-note">целиком; открыты все четыре суда</span>
     </div>
     <div class="tile">
-      <span class="tile-label">Разобрано карточек</span>
-      <span class="tile-value">27</span>
-      <span class="tile-note">279 текстов, 106 участников</span>
+      <span class="tile-label">Собрано в индекс</span>
+      <span class="tile-value">2 491 593</span>
+      <span class="tile-note">дела, 47 % корпуса по двум осям</span>
     </div>
   </div>
 
@@ -737,9 +737,12 @@ footer {
           на устойчивость: проверка оставлена в cron ещё на пару суток.
         </span></li>
         <li><span class="task-id">4.3</span><span class="task-body">
-          <strong>Бэкапы</strong> — выгрузка в объектное хранилище написана
-          и покрыта тестами, ждёт бакета.
-          <span class="criterion">потеря сервера не означает повторного обхода</span>
+          <strong>Бэкапы</strong> — <span class="done-mark">сделано.</span>
+          Бакет у FirstVDS, три префикса: сырьё, дампы базы, веса решателя
+          капчи. Сырьё уезжает разницей по <code>sha256</code> каждые шесть
+          часов, дамп снимается раз в сутки и держится семь копий — по счёту,
+          а не по возрасту: «удалять старше недели» после недельного простоя
+          оставило бы ноль копий ровно тогда, когда они нужны.
         </span></li>
         <li><span class="task-id">4.4</span><span class="task-body">
           <strong>Отдельный адрес</strong> от сервера с боевыми делами.
@@ -840,11 +843,13 @@ footer {
           <span class="criterion">миграция с колонкой применена</span>
         </span></li>
         <li><span class="task-id">6.4</span><span class="task-body">
-          <strong>Проиндексировать</strong> — эмбеддинги по актам, индекс HNSW.
-          Нарезка <span class="done-mark">готова</span>: режется по абзацам,
-          потому что предложения в юридическом тексте наивным разделителем
-          не берутся — «ст. 333 ГК РФ» рубится по точке. Осталась схема
-          под векторы и сам счёт.
+          <strong>Проиндексировать</strong> — <span class="done-mark">работает
+          на собранном:</span> таблица кусков с колонкой <code>vector(1024)</code>,
+          нарезка по абзацам, счёт на MLX. Проверено живьём — 279 актов,
+          2 236 кусков: запрос «снижение неустойки ввиду несоразмерности»
+          находит рассуждение о соразмерности последствиям нарушения,
+          не совпадая с ним ни одним словом. Индекс HNSW не строится, пока
+          кусков тысячи: точный перебор дешевле его обслуживания.
           <span class="criterion">семантический поиск находит близкое по смыслу, а не по словам</span>
         </span></li>
       </ul>

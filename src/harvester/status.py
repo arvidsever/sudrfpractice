@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, and_, func, or_, select
 
 from .db.schema import cartoteka_volume, case, harvest_run, harvest_task
 
@@ -24,16 +24,54 @@ from .db.schema import cartoteka_volume, case, harvest_run, harvest_task
 #: обойдётся остаток: строки мы знаем, а запросы — нет.
 PAGE_SIZE = 25
 
-#: Доля корпуса, которую даёт ось публикации. Ось поступления берёт всё,
-#: публикация — только дела с опубликованным актом, и это примерно
-#: на 7 % меньше (замер 5 КСОЮ, см. roadmap 3.1).
-PUBLICATION_SHARE = 0.93
+#: Во сколько раз запросов больше, чем дел в базе. Индекс идёт по двум осям,
+#: и вторая ось почти целиком повторяет первую: ось поступления берёт все
+#: дела, публикация — только с опубликованным актом, примерно на 7 % меньше
+#: (замер 5 КСОЮ, см. roadmap 3.1). В базу эти строки ложатся ОДНИМ делом —
+#: `uq_case_court_uid`, — поэтому удваивать надо работу, а не ожидаемый корпус.
+AXES_FACTOR = 1.93
+
+
+def _confirmed_empty():
+    """Пустое окно, у которого есть контроль: §5 грамматики, но бесплатно.
+
+    Портал отвечает `200 OK` и на кривой запрос, поэтому «данных
+    не обнаружено» само по себе не значит ничего: пустота и опечатка
+    в запросе неразличимы. Разрешает их контрольный запрос с заведомо
+    непустым окном — и его не надо делать заново, если рядом уже собрано
+    окно ТОЙ ЖЕ формы (суд, картотека, ось) с делами. Форма доказана —
+    значит пустота честная.
+
+    Окно без такого соседа остаётся подозрением и в закрытые не идёт.
+    """
+    proof = harvest_task.alias("proof")
+    return and_(
+        harvest_task.c.status == "empty",
+        select(1)
+        .where(
+            proof.c.court_domain == harvest_task.c.court_domain,
+            proof.c.cartoteka_id == harvest_task.c.cartoteka_id,
+            proof.c.axis == harvest_task.c.axis,
+            proof.c.status == "done",
+            proof.c.cases_found > 0,
+        )
+        .exists(),
+    )
+
+
+def _closed():
+    """Окно, к которому возвращаться не надо."""
+    return or_(harvest_task.c.status == "done", _confirmed_empty())
 
 
 @dataclass(frozen=True, slots=True)
 class Progress:
     windows_done: int
     windows_total: int
+    #: Окна, где дел нет и это подтверждено соседним окном той же формы.
+    windows_empty_confirmed: int
+    #: Пустые окна без такого подтверждения — их надо разбирать руками.
+    windows_empty_unconfirmed: int
     rows_collected: int
     rows_expected: int
     #: Запросов в час за последний час. `None` — за час ничего не закрылось.
@@ -61,10 +99,10 @@ class Progress:
         20.08 был закрыт почти весь Военный суд, самый маленький из десяти,
         и оценка по окнам обещала полтора суток вместо шести.
         """
-        if not self.rate_per_hour:
+        if not self.rate_per_hour or self.windows_done >= self.windows_total:
             return None
         rows_left = max(0, self.rows_expected - self.rows_collected)
-        return (rows_left / PAGE_SIZE) / self.rate_per_hour
+        return (rows_left * AXES_FACTOR / PAGE_SIZE) / self.rate_per_hour
 
 
 def collect(engine: Engine, *, now: datetime | None = None) -> Progress:
@@ -78,7 +116,13 @@ def collect(engine: Engine, *, now: datetime | None = None) -> Progress:
             select(func.count()).select_from(harvest_task)
         ).scalar_one()
         windows_done = connection.execute(
-            select(func.count()).where(harvest_task.c.status == "done")
+            select(func.count()).select_from(harvest_task).where(_closed())
+        ).scalar_one()
+        empty_confirmed = connection.execute(
+            select(func.count()).select_from(harvest_task).where(_confirmed_empty())
+        ).scalar_one()
+        empty_total = connection.execute(
+            select(func.count()).where(harvest_task.c.status == "empty")
         ).scalar_one()
         rows_collected = connection.execute(select(func.count()).select_from(case)).scalar_one()
 
@@ -115,9 +159,13 @@ def collect(engine: Engine, *, now: datetime | None = None) -> Progress:
     return Progress(
         windows_done=windows_done,
         windows_total=windows_total,
+        windows_empty_confirmed=empty_confirmed,
+        windows_empty_unconfirmed=empty_total - empty_confirmed,
         rows_collected=rows_collected,
-        # Индекс идёт по двум осям: поступление берёт всё, публикация — почти всё.
-        rows_expected=round(corpus * (1 + PUBLICATION_SHARE)),
+        # Ожидаем ровно замеренный корпус: две оси дают одни и те же дела,
+        # а не вдвое больше. Пока здесь стояло удвоение, полный индекс
+        # показывался как 52 % собранного — недосбор, которого нет.
+        rows_expected=corpus,
         rate_per_hour=rows_last_hour / PAGE_SIZE if rows_last_hour else None,
         last_window_at=last_window_at,
         complete_today=by_status.get("complete", 0),
@@ -132,7 +180,7 @@ def by_court(engine: Engine) -> list[tuple[str, int, int, int]]:
         done = dict(
             connection.execute(
                 select(harvest_task.c.court_domain, func.count())
-                .where(harvest_task.c.status == "done")
+                .where(_closed())
                 .group_by(harvest_task.c.court_domain)
             ).all()
         )
@@ -203,9 +251,18 @@ def render(progress: Progress, courts: list[tuple[str, int, int, int]], *, now: 
         f"Очередь   закрыто {_thousands(progress.windows_done)}"
         f" из {_thousands(progress.windows_total)}  ({_percent(progress.windows_share)})"
     )
+    if progress.windows_empty_confirmed:
+        lines.append(
+            f"          из них пусто, контроль есть: {_thousands(progress.windows_empty_confirmed)}"
+        )
+    if progress.windows_empty_unconfirmed:
+        lines.append(
+            f"          пусто БЕЗ контроля: "
+            f"{_thousands(progress.windows_empty_unconfirmed)} — это подозрение, а не ноль"
+        )
     lines.append(
         f"Собрано   {_thousands(progress.rows_collected)} дел"
-        f" из ≈ {_thousands(progress.rows_expected)} по двум осям"
+        f" из ≈ {_thousands(progress.rows_expected)} замеренных"
         f"  ({_percent(progress.rows_share)})"
     )
     if progress.rate_per_hour:

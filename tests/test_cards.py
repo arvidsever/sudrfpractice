@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 from sqlalchemy import create_engine, func, insert, select
 
@@ -136,4 +138,51 @@ def test_pending_needs_identifiers(seeded) -> None:
         )
     with engine.connect() as connection:
         assert len(pending_cards(connection, "5kas.sudrf.ru")) == 1
+    engine.dispose()
+
+
+def _add(engine, number: str, *, decision_date=None, act_published=None) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            insert(case).values(
+                court_domain="5kas.sudrf.ru",
+                cartoteka_id="g3",
+                case_id="1",
+                case_uid=number,
+                case_number=number,
+                decision_date=decision_date,
+                act_published=act_published,
+            )
+        )
+
+
+def test_order_and_filters_decide_the_price(seeded) -> None:
+    """Отбор — это не удобство, а срок: вся глубина стоит около 57 суток,
+    дела со ссылкой на акт — 33, они же с 2025 года — 8.
+
+    Порядок от свежего к старому нужен затем, что прерванный на середине
+    сбор должен оставить свежую практику, а не самую старую. Дела без даты
+    решения (найденные по оси поступления и ещё не рассмотренные) уходят
+    в конец: акта у них нет, а карточку придётся перечитывать.
+    """
+    engine = create_engine(seeded.database_url)
+    _add(engine, "старое", decision_date=date(2020, 5, 1), act_published=True)
+    _add(engine, "свежее", decision_date=date(2026, 5, 1), act_published=True)
+    _add(engine, "без акта", decision_date=date(2026, 6, 1), act_published=None)
+
+    with engine.connect() as connection:
+        order = [row.case_number for row in pending_cards(connection, "5kas.sudrf.ru")]
+        with_act = [
+            row.case_number for row in pending_cards(connection, "5kas.sudrf.ru", with_act=True)
+        ]
+        recent = [
+            row.case_number
+            for row in pending_cards(connection, "5kas.sudrf.ru", since=date(2025, 1, 1))
+        ]
+
+    assert order[:3] == ["без акта", "свежее", "старое"], "от свежего к старому"
+    # Дело из фикстуры `seeded` даты решения не имеет — и уходит в самый конец.
+    assert order[3].startswith("8Г-23799/2025")
+    assert set(with_act) == {"свежее", "старое"}
+    assert "старое" not in recent and "свежее" in recent
     engine.dispose()

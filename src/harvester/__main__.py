@@ -112,9 +112,19 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     acts = sub.add_parser("cards", help="обойти карточки дел: тексты актов, участники, движение")
-    acts.add_argument("--court", required=True, help="домен суда, напр. 5kas.sudrf.ru")
+    acts.add_argument("--court", help="домен суда, напр. 5kas.sudrf.ru")
+    acts.add_argument("--all", action="store_true", help="все суды кругами, вместо одного")
     acts.add_argument("--cartoteka", help="ограничить картотекой: g3 | u3 | p3 | adm3")
     acts.add_argument("--limit", type=int, help="взять не больше N карточек за прогон")
+    acts.add_argument(
+        "--with-act",
+        action="store_true",
+        help="только дела со ссылкой на акт: 1,6 млн вместо 2,7 — вдвое короче срок",
+    )
+    acts.add_argument(
+        "--since",
+        help="только дела с датой решения не раньше этой, дд.мм.гггг",
+    )
     acts.add_argument(
         "--pilot",
         action="store_true",
@@ -378,19 +388,34 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "cards":
         import logging
 
-        from .cards import collect_cards
+        from .cards import collect_cards, sweep_all
+
+        if not args.court and not args.all:
+            parser.error("нужен --court или --all")
 
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-        result = collect_cards(
-            args.court, limit=args.limit, bulk=not args.pilot, cartoteka_id=args.cartoteka
-        )
-        print(
-            f"{result.court_domain}: карточек {result.cards} из {result.attempted}, "
-            f"текстов {result.texts}, участников {result.participants}, "
-            f"без текста {result.without_text}, ошибок {result.failed}, "
-            f"осталось {result.remaining}"
-        )
-        if result.throttled:
+        since = _parse_date(args.since) if args.since else None
+        if args.all:
+            results = sweep_all(cartoteka_id=args.cartoteka, with_act=args.with_act, since=since)
+        else:
+            results = [
+                collect_cards(
+                    args.court,
+                    limit=args.limit,
+                    bulk=not args.pilot,
+                    cartoteka_id=args.cartoteka,
+                    with_act=args.with_act,
+                    since=since,
+                )
+            ]
+        for result in results:
+            print(
+                f"{result.court_domain}: карточек {result.cards} из {result.attempted}, "
+                f"текстов {result.texts}, участников {result.participants}, "
+                f"без текста {result.without_text}, ошибок {result.failed}, "
+                f"осталось {result.remaining}"
+            )
+        if any(result.throttled for result in results):
             print("суд попросил перестать — продолжать после паузы")
             return 1
         return 0

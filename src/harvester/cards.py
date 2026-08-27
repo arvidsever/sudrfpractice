@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.dialects.postgresql import insert
@@ -57,8 +58,20 @@ def pending_cards(
     court_domain: str,
     limit: int | None = None,
     cartoteka_id: str | None = None,
+    *,
+    with_act: bool = False,
+    since: date | None = None,
 ):
-    """Дела этого суда, чью карточку ещё не открывали."""
+    """Дела этого суда, чью карточку ещё не открывали, от свежего к старому.
+
+    Порядок и отбор — это цена этапа: весь индекс стоит около 57 суток,
+    только дела со ссылкой на акт — 33, они же с 2025 года — 8. Поэтому
+    `with_act` и `since` не украшение, а способ выбрать срок.
+
+    Дела без даты решения (найденные по оси поступления и ещё не
+    рассмотренные) уходят в конец: ссылка на акт есть у считанных единиц,
+    а карточку всё равно придётся перечитывать после рассмотрения.
+    """
     conditions = [
         case.c.court_domain == court_domain,
         case.c.card_fetched_at.is_(None),
@@ -67,11 +80,15 @@ def pending_cards(
     ]
     if cartoteka_id is not None:
         conditions.append(case.c.cartoteka_id == cartoteka_id)
+    if with_act:
+        conditions.append(case.c.act_published.is_(True))
+    if since is not None:
+        conditions.append(case.c.decision_date >= since)
 
     query = (
         select(case.c.id, case.c.case_id, case.c.case_uid, case.c.cartoteka_id, case.c.case_number)
         .where(*conditions)
-        .order_by(case.c.id)
+        .order_by(case.c.decision_date.desc().nullslast(), case.c.id.desc())
     )
     if limit is not None:
         query = query.limit(limit)
@@ -85,6 +102,8 @@ def collect_cards(
     limit: int | None = None,
     bulk: bool = True,
     cartoteka_id: str | None = None,
+    with_act: bool = False,
+    since: date | None = None,
 ) -> CardSweepResult:
     settings = settings or default_settings
     raw_store = RawStore(settings.raw_root)
@@ -92,7 +111,9 @@ def collect_cards(
     court = find_court(court_domain)
 
     with engine.connect() as connection:
-        targets = pending_cards(connection, court_domain, limit, cartoteka_id)
+        targets = pending_cards(
+            connection, court_domain, limit, cartoteka_id, with_act=with_act, since=since
+        )
 
     cards = texts = participants = without_text = failed = 0
     throttled = False
@@ -157,7 +178,11 @@ def collect_cards(
                 without_text += 1
 
     with engine.connect() as connection:
-        remaining = len(pending_cards(connection, court_domain, cartoteka_id=cartoteka_id))
+        remaining = len(
+            pending_cards(
+                connection, court_domain, cartoteka_id=cartoteka_id, with_act=with_act, since=since
+            )
+        )
     engine.dispose()
 
     return CardSweepResult(
@@ -171,3 +196,73 @@ def collect_cards(
         remaining=remaining,
         throttled=throttled,
     )
+
+
+#: Сколько карточек берётся у одного суда за круг. Мелкими кругами, а не
+#: судом целиком: иначе первый же суд занял бы недели, и до остальных
+#: очередь дошла бы через месяц.
+ROUND_CHUNK = 200
+
+
+def sweep_all(
+    *,
+    settings: Settings | None = None,
+    chunk: int = ROUND_CHUNK,
+    cartoteka_id: str | None = None,
+    with_act: bool = False,
+    since: date | None = None,
+) -> list[CardSweepResult]:
+    """Обойти карточки всех судов кругами, пока они не кончатся.
+
+    Потоков нет намеренно: темп задаёт общий дроссель платформы (1,5 с
+    между любыми двумя запросами), а не суд, поэтому десять потоков дали бы
+    тот же час и десять поводов получить 429.
+
+    Суд, ответивший «временно недоступна», выбывает до следующего запуска:
+    отступление у клиента общее на процесс, и ждать его, стоя на месте,
+    дороже, чем идти к соседям.
+    """
+    from .directories import courts
+
+    live = [item.domain for item in courts()]
+    totals: dict[str, CardSweepResult] = {}
+
+    while live:
+        for domain in list(live):
+            result = collect_cards(
+                domain,
+                settings=settings,
+                limit=chunk,
+                cartoteka_id=cartoteka_id,
+                with_act=with_act,
+                since=since,
+            )
+            previous = totals.get(domain)
+            totals[domain] = (
+                result
+                if previous is None
+                else CardSweepResult(
+                    court_domain=domain,
+                    attempted=previous.attempted + result.attempted,
+                    cards=previous.cards + result.cards,
+                    texts=previous.texts + result.texts,
+                    participants=previous.participants + result.participants,
+                    without_text=previous.without_text + result.without_text,
+                    failed=previous.failed + result.failed,
+                    remaining=result.remaining,
+                    throttled=result.throttled,
+                )
+            )
+            log.info(
+                "%s: карточек %d, текстов %d, осталось %d",
+                domain,
+                result.cards,
+                result.texts,
+                result.remaining,
+            )
+            # Круг без единой карточки означает, что брать больше нечего
+            # (или суд закрылся) — иначе цикл крутился бы вечно.
+            if result.throttled or result.remaining == 0 or result.cards == 0:
+                live.remove(domain)
+
+    return [totals[domain] for domain in sorted(totals)]

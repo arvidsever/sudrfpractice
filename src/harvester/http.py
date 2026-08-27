@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import logging
 import threading
 import time
@@ -37,6 +38,44 @@ class CaptchaNotPassed(RuntimeError):
 
 class CourtOnCooldown(RuntimeError):
     """Суд просил отступить, и срок паузы ещё не вышел."""
+
+
+class AlreadyHarvesting(RuntimeError):
+    """На машине уже идёт обход. Второй сделал бы двойной темп."""
+
+
+#: Открытый файл замка. Живёт до конца процесса намеренно: замок и должен
+#: держаться всё это время, а `flock` ядро снимает само при выходе.
+_HARVEST_LOCK: list = []
+
+
+def claim_harvest_lock(settings: Settings | None = None) -> None:
+    """Занять замок на всю машину до конца процесса.
+
+    Общий дроссель считает время в переменной процесса (`_LAST_REQUEST_ANY`),
+    и до сих пор этого хватало: обход был один. С расписанием их стало три —
+    прогон очереди каждые полчаса, суточный добег и многодневный свод
+    карточек, — и любые два, сойдясь во времени, выдержали бы каждый свои
+    1,5 с, а ГАС увидел бы запрос каждые 0,75. Ровно на таком превышении
+    20.08.2026 семь судов ответили 429 в одну минуту.
+
+    Замок файловый и берётся через `flock`: ядро снимает его само, когда
+    процесс умирает, поэтому «залипшего» замка после Ctrl+C или паники
+    не остаётся — в отличие от файла-флага, который пришлось бы убирать
+    руками ровно тогда, когда никто не помнит, что он есть.
+    """
+    settings = settings or default_settings
+    path = settings.raw_root.parent / ".harvester.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("w")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        handle.close()
+        raise AlreadyHarvesting(
+            f"обход уже идёт (замок {path}); второй процесс удвоил бы темп на ГАС"
+        ) from exc
+    _HARVEST_LOCK.append(handle)
 
 
 def _today() -> date:

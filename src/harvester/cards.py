@@ -29,6 +29,7 @@ from .db.store import act_for_text, save_card, save_raw_page
 from .directories import cartoteka as find_cartoteka
 from .directories import court as find_court
 from .guards import Verdict, classify
+from .http import CourtOnCooldown
 from .parse.card import parse_card
 from .raw import RawStore
 from .urls import card_url
@@ -126,6 +127,13 @@ def collect_cards(
             )
             try:
                 response = client.get(url)
+            except CourtOnCooldown as exc:
+                # Суд отдыхает — остальные его карточки ждать не будут, иначе
+                # остаток свода превратится в тысячи мгновенных «неудач»,
+                # не сделавших ни одного запроса.
+                throttled = True
+                log.info("%s", exc)
+                break
             except Exception as exc:  # noqa: BLE001 — одна карточка не роняет свод
                 failed += 1
                 log.warning("%s: %s", row.case_number, exc)
@@ -218,9 +226,13 @@ def sweep_all(
     между любыми двумя запросами), а не суд, поэтому десять потоков дали бы
     тот же час и десять поводов получить 429.
 
-    Суд, ответивший «временно недоступна», выбывает до следующего запуска:
-    отступление у клиента общее на процесс, и ждать его, стоя на месте,
-    дороже, чем идти к соседям.
+    Суд, попросивший отступить, из круга НЕ выбывает — он пропускается
+    и берётся снова на следующем. Выбывать насовсем ему нельзя: свод идёт
+    сутками, а пауза длится полчаса, и один отказ стоил бы суду всех
+    оставшихся дней.
+
+    Круг, в котором ни один суд не отдал ни карточки, заканчивает прогон:
+    значит либо всё собрано, либо все отдыхают. Поднимет заново `launchd`.
     """
     from .directories import courts
 
@@ -228,6 +240,7 @@ def sweep_all(
     totals: dict[str, CardSweepResult] = {}
 
     while live:
+        worked = False
         for domain in list(live):
             result = collect_cards(
                 domain,
@@ -260,9 +273,11 @@ def sweep_all(
                 result.texts,
                 result.remaining,
             )
-            # Круг без единой карточки означает, что брать больше нечего
-            # (или суд закрылся) — иначе цикл крутился бы вечно.
-            if result.throttled or result.remaining == 0 or result.cards == 0:
+            if result.cards:
+                worked = True
+            if result.remaining == 0:
                 live.remove(domain)
+        if not worked:
+            break
 
     return [totals[domain] for domain in sorted(totals)]

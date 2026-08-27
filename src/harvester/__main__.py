@@ -12,6 +12,13 @@ from pathlib import Path
 from .directories import cartoteka, cartoteki, court, courts
 from .urls import DateAxis, listing_url, page_count
 
+#: Команды, которые ходят на суды. Каждая берёт замок на машину: общий
+#: дроссель считает время в переменной процесса, поэтому два обхода разом
+#: дали бы двойной темп — и 429, как 20.08.2026. Диагностика (`harvest
+#: --pilot`) в списке намеренно: блокировку 19.08 принесли именно разовые
+#: проверки мимо дросселя.
+NETWORK_COMMANDS = frozenset({"harvest", "measure", "run", "catchup", "cards"})
+
 
 def _parse_date(value: str):
     return datetime.strptime(value, "%d.%m.%Y").date()
@@ -132,6 +139,15 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+
+    if args.command in NETWORK_COMMANDS:
+        from .http import AlreadyHarvesting, claim_harvest_lock
+
+        try:
+            claim_harvest_lock()
+        except AlreadyHarvesting as exc:
+            print(exc)
+            return 1
 
     if args.command == "courts":
         for item in courts():

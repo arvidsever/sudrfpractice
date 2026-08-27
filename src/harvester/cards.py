@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import date
 
@@ -29,7 +30,7 @@ from .db.store import act_for_text, save_card, save_raw_page
 from .directories import cartoteka as find_cartoteka
 from .directories import court as find_court
 from .guards import Verdict, classify
-from .http import CourtOnCooldown
+from .http import CourtOnCooldown, cooldown_left, wait_out_cooldown
 from .parse.card import parse_card
 from .raw import RawStore
 from .urls import card_url
@@ -206,9 +207,9 @@ def collect_cards(
     )
 
 
-#: Сколько карточек берётся у одного суда за круг. Мелкими кругами, а не
-#: судом целиком: иначе первый же суд занял бы недели, и до остальных
-#: очередь дошла бы через месяц.
+#: Сколько карточек поток берёт у своего суда за один заход. Кусками, а не
+#: судом целиком: между заходами свод переспрашивает базу, и прерванный
+#: прогон не теряет счёт остатка.
 ROUND_CHUNK = 200
 
 
@@ -220,28 +221,35 @@ def sweep_all(
     with_act: bool = False,
     since: date | None = None,
 ) -> list[CardSweepResult]:
-    """Обойти карточки всех судов кругами, пока они не кончатся.
+    """Обойти карточки всех судов — поток на суд, пока они не кончатся.
 
-    Потоков нет намеренно: темп задаёт общий дроссель платформы (1,5 с
-    между любыми двумя запросами), а не суд, поэтому десять потоков дали бы
-    тот же час и десять поводов получить 429.
+    **Потоки здесь не про параллельность, а про то, какой дроссель
+    окажется главным.** Первая версия шла судами по очереди, и замер это
+    сразу показал: 3,0 с между запросами, 1 200 в час. Упирался дроссель
+    НА ХОСТ (3 с), потому что в каждый момент открыт был ровно один суд.
+    Общий дроссель (1,5 с) при этом простаивал: ему нечего сдерживать,
+    пока запросы и так идут вдвое реже.
 
-    Суд, попросивший отступить, из круга НЕ выбывает — он пропускается
-    и берётся снова на следующем. Выбывать насовсем ему нельзя: свод идёт
-    сутками, а пауза длится полчаса, и один отказ стоил бы суду всех
-    оставшихся дней.
+    С потоком на суд пауза одного суда закрывается работой соседей,
+    и главным становится общий дроссель — 2 400 запросов в час, то есть
+    вдвое. Быстрее не будет: это потолок платформы, а не наш.
 
-    Круг, в котором ни один суд не отдал ни карточки, заканчивает прогон:
-    значит либо всё собрано, либо все отдыхают. Поднимет заново `launchd`.
+    Суд, попросивший отступить, поток не бросает, а досыпает паузу —
+    ровно как в прогоне очереди. Свод идёт сутками, пауза длится полчаса,
+    и уход означал бы, что суд, однажды придержавший нас, больше
+    не собирается никогда.
     """
     from .directories import courts
 
-    live = [item.domain for item in courts()]
+    domains = [item.domain for item in courts()]
     totals: dict[str, CardSweepResult] = {}
+    guard = threading.Lock()
+    stop = threading.Event()
 
-    while live:
-        worked = False
-        for domain in list(live):
+    def work(domain: str) -> None:
+        while not stop.is_set():
+            if not wait_out_cooldown(domain, stop):
+                return
             result = collect_cards(
                 domain,
                 settings=settings,
@@ -250,22 +258,23 @@ def sweep_all(
                 with_act=with_act,
                 since=since,
             )
-            previous = totals.get(domain)
-            totals[domain] = (
-                result
-                if previous is None
-                else CardSweepResult(
-                    court_domain=domain,
-                    attempted=previous.attempted + result.attempted,
-                    cards=previous.cards + result.cards,
-                    texts=previous.texts + result.texts,
-                    participants=previous.participants + result.participants,
-                    without_text=previous.without_text + result.without_text,
-                    failed=previous.failed + result.failed,
-                    remaining=result.remaining,
-                    throttled=result.throttled,
+            with guard:
+                previous = totals.get(domain)
+                totals[domain] = (
+                    result
+                    if previous is None
+                    else CardSweepResult(
+                        court_domain=domain,
+                        attempted=previous.attempted + result.attempted,
+                        cards=previous.cards + result.cards,
+                        texts=previous.texts + result.texts,
+                        participants=previous.participants + result.participants,
+                        without_text=previous.without_text + result.without_text,
+                        failed=previous.failed + result.failed,
+                        remaining=result.remaining,
+                        throttled=result.throttled,
+                    )
                 )
-            )
             log.info(
                 "%s: карточек %d, текстов %d, осталось %d",
                 domain,
@@ -273,11 +282,27 @@ def sweep_all(
                 result.texts,
                 result.remaining,
             )
-            if result.cards:
-                worked = True
             if result.remaining == 0:
-                live.remove(domain)
-        if not worked:
-            break
+                return
+            # Ни одной карточки и ждать нечего — брать больше нечего либо
+            # что-то не так. Крутиться вхолостую нельзя: заход без паузы
+            # и без работы повторялся бы бесконечно. Поднимет заново launchd.
+            if result.cards == 0 and cooldown_left(domain) <= 0:
+                return
+
+    threads = [
+        threading.Thread(target=work, args=(domain,), name=f"карточки-{domain}", daemon=True)
+        for domain in domains
+    ]
+    for thread in threads:
+        thread.start()
+    try:
+        for thread in threads:
+            thread.join()
+    except KeyboardInterrupt:  # pragma: no cover — сценарий человека
+        log.warning("прерывание: доводим текущие куски и выходим")
+        stop.set()
+        for thread in threads:
+            thread.join(timeout=120)
 
     return [totals[domain] for domain in sorted(totals)]

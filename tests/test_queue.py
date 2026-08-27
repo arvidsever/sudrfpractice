@@ -198,15 +198,14 @@ def test_thread_waits_out_the_pause_instead_of_leaving() -> None:
     import threading
     import time
 
-    from harvester.http import _COOLDOWNS
-    from harvester.run import _wait_out_cooldown
+    from harvester.http import _COOLDOWNS, wait_out_cooldown
 
     domain = "5kas.sudrf.ru"
     stop = threading.Event()
     _COOLDOWNS[domain] = time.monotonic() + 0.3
     try:
         started = time.monotonic()
-        assert _wait_out_cooldown(domain, stop) is True, "дождавшись паузы, поток работает дальше"
+        assert wait_out_cooldown(domain, stop) is True, "дождавшись паузы, поток работает дальше"
         assert time.monotonic() - started >= 0.3, "вернулся раньше, чем кончилась пауза"
     finally:
         _COOLDOWNS.pop(domain, None)
@@ -217,14 +216,13 @@ def test_waiting_thread_still_obeys_the_stop_signal() -> None:
     import threading
     import time
 
-    from harvester.http import _COOLDOWNS
-    from harvester.run import _wait_out_cooldown
+    from harvester.http import _COOLDOWNS, wait_out_cooldown
 
     domain = "9kas.sudrf.ru"
     stop = threading.Event()
     stop.set()
     _COOLDOWNS[domain] = time.monotonic() + 3600
     try:
-        assert _wait_out_cooldown(domain, stop) is False
+        assert wait_out_cooldown(domain, stop) is False
     finally:
         _COOLDOWNS.pop(domain, None)

@@ -23,7 +23,13 @@ from .directories import cartoteka as find_cartoteka
 from .directories import court as find_court
 from .directories import courts
 from .harvest import harvest_listing
-from .http import _COOLDOWNS, CourtOnCooldown, DailyCapReached, OutsideCollectionWindow
+from .http import (
+    CourtOnCooldown,
+    DailyCapReached,
+    OutsideCollectionWindow,
+    cooldown_left,
+    wait_out_cooldown,
+)
 from .urls import DateAxis
 
 log = logging.getLogger("harvester.run")
@@ -59,32 +65,6 @@ class RunTotals:
             self.throttled += int(throttled)
 
 
-def _cooldown_left(domain: str) -> float:
-    """Сколько секунд ещё нельзя трогать этот суд."""
-    import time
-
-    return max(0.0, _COOLDOWNS.get(domain, 0.0) - time.monotonic())
-
-
-def _wait_out_cooldown(domain: str, stop: threading.Event) -> bool:
-    """Дождаться конца паузы у суда. `False` — ждать больше нечего, уходим.
-
-    Раньше поток на паузе просто заканчивался: ночной прогон всё равно
-    умирал к утру, и следующий запуск начинал с чистого листа. При
-    круглосуточной работе процесс живёт сутками, и такой уход означал бы,
-    что суд, однажды попросивший отступить, больше не собирается никогда.
-    20.08.2026 так и вышло: к семи утра из десяти судов работал один,
-    а у девяти оставалось по шестьсот несобранных окон.
-    """
-    while not stop.is_set():
-        left = _cooldown_left(domain)
-        if left <= 0:
-            return True
-        log.info("%s: пауза ещё %.0f мин, поток ждёт", domain, left / 60)
-        stop.wait(min(left, 60.0))
-    return False
-
-
 def _work_one_court(
     engine,
     domain: str,
@@ -96,7 +76,7 @@ def _work_one_court(
 ) -> None:
     done = 0
     while not stop.is_set() and (limit is None or done < limit):
-        if not _wait_out_cooldown(domain, stop):
+        if not wait_out_cooldown(domain, stop):
             return
 
         task = task_queue.claim(engine, courts=[domain])
@@ -139,7 +119,7 @@ def _work_one_court(
             # 20.08 из десяти судов к утру работал один.
             task_queue.complete(engine, task, status="throttled", error=str(exc), refund=True)
             totals.add(throttled=True)
-            if _cooldown_left(domain) <= 0:
+            if cooldown_left(domain) <= 0:
                 # Пауза не проставлена — ждать нечего и незачем: без этой
                 # проверки поток брал бы то же окно по кругу. Статус
                 # `throttled` очередь снова выдаёт, так что круг был бы вечным.

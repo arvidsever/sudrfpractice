@@ -107,3 +107,39 @@ def test_broken_model_file_still_uploads(tmp_path: Path) -> None:
 
 def test_no_model_no_upload(tmp_path: Path) -> None:
     assert model_upload(tmp_path / "нет.json") is None
+
+
+def test_restore_brings_back_only_what_is_missing(tmp_path: Path) -> None:
+    """Копия, которую нечем развернуть, копией не считается.
+
+    Сырьё дороже базы: база выводится из него переразбором за часы, а обход
+    судов заново — недели. До 28.08.2026 в коде была только выгрузка, и
+    проверить архив было нечем.
+    """
+    from harvester.archive import pull
+
+    sha = "ef" + "2" * 62
+    key = f"{PREFIX_RAW}9kas.sudrf.ru/2026/{sha[:2]}/{sha}.html.zst"
+    store = _RestoreStore({key: "страница".encode()})
+
+    root = tmp_path / "raw"
+    first = pull(store, root)
+    assert (first.downloaded, first.skipped) == (1, 0)
+    assert (
+        root / f"9kas.sudrf.ru/2026/{sha[:2]}/{sha}.html.zst"
+    ).read_bytes() == "страница".encode()
+
+    # Второй заход ничего не качает: страница адресуется своим sha256,
+    # поэтому «файл с таким именем есть» и значит «та самая страница».
+    again = pull(store, root)
+    assert (again.downloaded, again.skipped) == (0, 1)
+
+
+class _RestoreStore(_Store):
+    def __init__(self, objects: dict[str, bytes]):
+        super().__init__(set(objects))
+        self.objects = objects
+
+    def get_file(self, key: str, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(self.objects[key])

@@ -48,6 +48,15 @@ class S3Store:
     def put_file(self, key: str, path: Path) -> None:
         self._client.upload_file(str(path), self.bucket, key)
 
+    def get_file(self, key: str, path: Path) -> None:
+        """Забрать объект на диск. Ради этого архив и заводился.
+
+        Бэкап без проверенного восстановления — это надежда, а не копия;
+        до 28.08.2026 в коде была только выгрузка.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._client.download_file(self.bucket, key, str(path))
+
     def delete(self, key: str) -> None:
         """Удалить объект. Нужен только для ротации дампов: сырьё
         не удаляется никогда — оно адресуется содержимым и дороже базы."""

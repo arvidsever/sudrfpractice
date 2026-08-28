@@ -110,6 +110,12 @@ def main(argv: list[str] | None = None) -> int:
     archive = sub.add_parser("archive", help="выгрузить сырьё и веса в объектное хранилище")
     archive.add_argument("--dry-run", action="store_true", help="показать, но не заливать")
     archive.add_argument("--model", action="store_true", help="залить и веса решателя капчи")
+    archive.add_argument(
+        "--restore",
+        action="store_true",
+        help="наоборот: забрать сырьё из архива на диск (проверка, что копия разворачивается)",
+    )
+    archive.add_argument("--limit", type=int, help="при --restore: взять не больше N файлов")
 
     runner = sub.add_parser("run", help="прогнать очередь: собрать перечни по окнам")
     runner.add_argument("--court", action="append", help="ограничить суды, можно повторять")
@@ -371,6 +377,14 @@ def main(argv: list[str] | None = None) -> int:
         from .s3 import S3Store
 
         store = S3Store()
+
+        if args.restore:
+            from .archive import pull
+
+            restored = pull(store, settings.raw_root, limit=args.limit, dry_run=args.dry_run)
+            print(f"скачано {restored.downloaded}, уже было {restored.skipped}")
+            return 0
+
         uploads = list(raw_uploads(settings.raw_root))
         if args.model:
             weights = model_upload(Path("data/captcha-model.json"))

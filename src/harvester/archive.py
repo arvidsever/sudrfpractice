@@ -101,6 +101,39 @@ def push(store: ObjectStore, uploads: Iterable[Upload], *, dry_run: bool = False
     return PushResult(uploaded=uploaded, skipped=skipped, bytes_sent=sent)
 
 
+@dataclass(frozen=True, slots=True)
+class PullResult:
+    downloaded: int
+    skipped: int
+
+
+def pull(store, raw_root: Path, *, limit: int | None = None, dry_run: bool = False) -> PullResult:
+    """Забрать сырьё из архива на диск — обратная сторона `push`.
+
+    Нужна не «на всякий случай»: сырьё дороже базы (база выводится из него
+    переразбором за часы, а обход судов заново — недели), и до 28.08.2026
+    в коде была только выгрузка. Копия, которую нечем развернуть, копией
+    не считается.
+
+    Скачивается только отсутствующее: страница адресуется своим sha256,
+    поэтому «есть файл с таким именем» и значит «та самая страница».
+    """
+    downloaded = skipped = 0
+    for key in sorted(store.list_keys(PREFIX_RAW)):
+        if limit is not None and downloaded >= limit:
+            break
+        target = raw_root / key[len(PREFIX_RAW) :]
+        if target.exists():
+            skipped += 1
+            continue
+        if not dry_run:
+            store.get_file(key, target)
+        downloaded += 1
+
+    log.info("скачано %d, уже было %d%s", downloaded, skipped, " (вхолостую)" if dry_run else "")
+    return PullResult(downloaded=downloaded, skipped=skipped)
+
+
 def model_upload(model_path: Path) -> Upload | None:
     """Веса решателя. Имя с отметкой обучения, чтобы старые не затирались."""
     if not model_path.exists():

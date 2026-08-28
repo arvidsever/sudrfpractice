@@ -51,3 +51,22 @@ def test_extensions_are_installed(inspector) -> None:
     with inspector.engine.connect() as connection:
         installed = {row[0] for row in connection.execute(text("select extname from pg_extension"))}
     assert {"pg_trgm", "vector"} <= installed
+
+
+def test_socket_url_survives_alembic_config() -> None:
+    """Адрес через unix-сокет не должен ломать миграции.
+
+    `set_main_option` кладёт значение в configparser, где `%` начинает
+    интерполяцию, а сокетный адрес несёт `?host=%2Fvar%2Frun%2Fpostgresql`.
+    До удвоения процентов миграции падали с «invalid interpolation syntax»
+    ещё до первого запроса — при живой и отвечающей базе.
+    """
+    from pathlib import Path
+
+    from alembic.config import Config
+
+    url = "postgresql+psycopg://sudrf@/praktika?host=%2Fvar%2Frun%2Fpostgresql"
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
+
+    assert config.get_main_option("sqlalchemy.url") == url

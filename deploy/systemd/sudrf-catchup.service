@@ -1,0 +1,10 @@
+[Unit]
+Description=Суточный добег: свежая практика в индекс
+
+[Service]
+Type=oneshot
+User=sudrf
+WorkingDirectory=/srv/sudrfpractice
+# Окно с запасом назад, а не «со вчера»: портал публикует и задним числом.
+ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester catchup --days 7
+TimeoutStartSec=infinity

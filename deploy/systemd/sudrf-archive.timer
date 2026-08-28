@@ -1,0 +1,10 @@
+[Unit]
+Description=Выгрузка в хранилище раз в шесть часов
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

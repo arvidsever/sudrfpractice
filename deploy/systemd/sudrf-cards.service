@@ -1,0 +1,14 @@
+[Unit]
+Description=Свод карточек дел КСОЮ
+Documentation=file:///srv/sudrfpractice/docs/roadmap.md
+
+[Service]
+Type=oneshot
+User=sudrf
+WorkingDirectory=/srv/sudrfpractice
+# Объём выбран владельцем 27.08.2026: дела со ссылкой на акт с 2025 года.
+# Прайс-лист остальных вариантов — docs/roadmap.md, этап 5.
+ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester cards --all --with-act --since 01.01.2025
+# Прогон сам выходит, когда все суды придержаны; таймер поднимет снова.
+# Второй заход не начнётся: харвестер держит flock на машину.
+TimeoutStartSec=infinity

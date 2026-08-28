@@ -1,0 +1,10 @@
+[Unit]
+Description=Поднимать свод карточек каждые полчаса
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=30min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

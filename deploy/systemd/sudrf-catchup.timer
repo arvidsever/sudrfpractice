@@ -1,0 +1,10 @@
+[Unit]
+Description=Добег раз в сутки
+
+[Timer]
+OnCalendar=*-*-* 05:00:00
+# Пропущенный из-за простоя запуск наверстать: без добега индекс застывает.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

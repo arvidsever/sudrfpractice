@@ -1,0 +1,10 @@
+[Unit]
+Description=Выгрузка сырья и дампа базы в S3
+
+[Service]
+Type=oneshot
+User=sudrf
+WorkingDirectory=/srv/sudrfpractice
+ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester archive
+ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester dump
+TimeoutStartSec=infinity

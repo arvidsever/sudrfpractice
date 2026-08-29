@@ -76,7 +76,6 @@ def claim_harvest_lock(settings: Settings | None = None, *, wait: bool = False) 
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = path.open("w")
     if wait:
-        log.info("жду очереди на замке %s", path)
         fcntl.flock(handle, fcntl.LOCK_EX)
     else:
         try:

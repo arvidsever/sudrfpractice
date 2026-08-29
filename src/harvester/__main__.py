@@ -157,10 +157,16 @@ def main(argv: list[str] | None = None) -> int:
         from .http import AlreadyHarvesting, claim_harvest_lock
 
         try:
-            claim_harvest_lock(wait=args.command in WAIT_FOR_LOCK)
+            claim_harvest_lock()
         except AlreadyHarvesting as exc:
-            print(exc)
-            return 1
+            if args.command not in WAIT_FOR_LOCK:
+                print(exc)
+                return 1
+            # Печатью, а не журналом: логи настраиваются ниже, каждой
+            # командой отдельно, и до них сообщение бы не дожило. А знать
+            # надо сразу — снаружи «ждёт очереди» и «повис» неотличимы.
+            print(f"{exc}; жду очереди", flush=True)
+            claim_harvest_lock(wait=True)
 
     if args.command == "courts":
         for item in courts():

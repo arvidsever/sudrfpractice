@@ -45,8 +45,29 @@ def _key(day: date) -> str:
 
 
 def _database_name(url: str) -> str:
-    """Имя базы из строки подключения SQLAlchemy."""
-    return url.rsplit("/", 1)[-1].split("?", 1)[0]
+    """Имя базы из строки подключения SQLAlchemy.
+
+    Разбором занимается сам SQLAlchemy, а не `rsplit("/")`: на адресе через
+    unix-сокет (`?host=/var/run/postgresql`) последний слэш оказывается
+    внутри параметра, и прежняя нарезка возвращала «postgresql». Дамп
+    снимался не с той базы — молча, каждые шесть часов, пока сервер
+    не начал ими заниматься по-настоящему.
+    """
+    from sqlalchemy import make_url
+
+    return make_url(url).database or ""
+
+
+def _connection_uri(url: str) -> str:
+    """То же подключение, но в виде, который понимает `pg_dump`.
+
+    Имени базы мало: подключение может быть не тем, каким его угадает
+    libpq по умолчанию. Отдаём весь адрес целиком — тогда дамп
+    гарантированно снимается оттуда же, куда ходит приложение.
+    """
+    from sqlalchemy import make_url
+
+    return make_url(url).set(drivername="postgresql").render_as_string(hide_password=False)
 
 
 def make_dump(
@@ -73,7 +94,15 @@ def make_dump(
         # -Fc: формат, который читает pg_restore выборочно, по таблицам.
         # Плоский SQL пришлось бы накатывать целиком.
         subprocess.run(
-            ["pg_dump", "-Fc", "-Z6", database, "-f", str(path)],
+            [
+                "pg_dump",
+                "-Fc",
+                "-Z6",
+                "-d",
+                _connection_uri(settings.database_url),
+                "-f",
+                str(path),
+            ],
             check=True,
             capture_output=True,
         )

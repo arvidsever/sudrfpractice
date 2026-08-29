@@ -49,8 +49,15 @@ class AlreadyHarvesting(RuntimeError):
 _HARVEST_LOCK: list = []
 
 
-def claim_harvest_lock(settings: Settings | None = None) -> None:
+def claim_harvest_lock(settings: Settings | None = None, *, wait: bool = False) -> None:
     """Занять замок на всю машину до конца процесса.
+
+    `wait=True` — дождаться очереди вместо отказа. Нужно тем, кто обязан
+    отработать, а не тем, кого запустили руками: суточный добег иначе
+    не выполнится ни разу за шесть суток свода карточек, потому что свод
+    держит замок почти непрерывно. Настоящее правило — «на суды ходит один
+    процесс», а не «второй умирает»; 29.08.2026 добег умер в 05:00 именно
+    от буквального прочтения.
 
     Общий дроссель считает время в переменной процесса (`_LAST_REQUEST_ANY`),
     и до сих пор этого хватало: обход был один. С расписанием их стало три —
@@ -68,13 +75,17 @@ def claim_harvest_lock(settings: Settings | None = None) -> None:
     path = settings.raw_root.parent / ".harvester.lock"
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = path.open("w")
-    try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError as exc:
-        handle.close()
-        raise AlreadyHarvesting(
-            f"обход уже идёт (замок {path}); второй процесс удвоил бы темп на ГАС"
-        ) from exc
+    if wait:
+        log.info("жду очереди на замке %s", path)
+        fcntl.flock(handle, fcntl.LOCK_EX)
+    else:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            handle.close()
+            raise AlreadyHarvesting(
+                f"обход уже идёт (замок {path}); второй процесс удвоил бы темп на ГАС"
+            ) from exc
     _HARVEST_LOCK.append(handle)
 
 

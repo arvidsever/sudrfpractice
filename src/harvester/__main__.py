@@ -19,6 +19,13 @@ from .urls import DateAxis, listing_url, page_count
 #: проверки мимо дросселя.
 NETWORK_COMMANDS = frozenset({"harvest", "measure", "run", "catchup", "cards"})
 
+#: Кто не отказывается, а ждёт очереди. Добег обязан отработать: свод
+#: карточек держит замок почти непрерывно шесть суток, и «занято — выходим»
+#: означало бы, что свежая практика не попадёт в индекс ни разу. Остальным
+#: ждать нечего: свод поднимет таймер через полчаса, а разовую команду
+#: запустил человек и он же решит, когда повторить.
+WAIT_FOR_LOCK = frozenset({"catchup"})
+
 
 def _parse_date(value: str):
     return datetime.strptime(value, "%d.%m.%Y").date()
@@ -150,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
         from .http import AlreadyHarvesting, claim_harvest_lock
 
         try:
-            claim_harvest_lock()
+            claim_harvest_lock(wait=args.command in WAIT_FOR_LOCK)
         except AlreadyHarvesting as exc:
             print(exc)
             return 1

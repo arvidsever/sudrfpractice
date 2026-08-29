@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from harvester.dump import _database_name, make_dump
+from harvester.dump import _connection_uri, _database_name, make_dump
 
 
 class _Bucket:
@@ -96,3 +96,23 @@ def test_raw_is_never_touched(no_pg_dump) -> None:
 def test_database_name_survives_the_url() -> None:
     assert _database_name("postgresql+psycopg://localhost:5432/praktika") == "praktika"
     assert _database_name("postgresql+psycopg://u:p@host/praktika?sslmode=require") == "praktika"
+
+
+def test_socket_url_does_not_dump_the_wrong_database() -> None:
+    """Адрес через unix-сокет прежняя нарезка читала как базу «postgresql».
+
+    Последний слэш там внутри параметра `?host=/var/run/postgresql`, а не
+    перед именем базы. Дамп снимался не с той базы — молча и каждые шесть
+    часов, пока сервер не начал ими заниматься по-настоящему.
+    """
+    socket_url = "postgresql+psycopg://sudrf@/praktika?host=/var/run/postgresql"
+
+    assert _database_name(socket_url) == "praktika"
+    assert socket_url.rsplit("/", 1)[-1] == "postgresql", "ради этого и заменили нарезку"
+
+    # pg_dump получает адрес целиком, а не одно имя: подключение может
+    # не совпасть с тем, что libpq угадает по умолчанию.
+    # Слэши в параметре приезжают процентами — libpq их и ждёт в URI.
+    assert (
+        _connection_uri(socket_url) == "postgresql://sudrf@/praktika?host=%2Fvar%2Frun%2Fpostgresql"
+    )

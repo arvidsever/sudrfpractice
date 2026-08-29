@@ -59,3 +59,28 @@ def test_taken_twice_in_one_process_is_an_error(tmp_path) -> None:
     claim_harvest_lock(settings)
     with pytest.raises(AlreadyHarvesting):
         claim_harvest_lock(settings)
+
+
+def test_waiting_asks_the_kernel_to_queue_instead_of_refusing(tmp_path, monkeypatch) -> None:
+    """Добег обязан отработать, а не умереть.
+
+    Свод карточек держит замок почти непрерывно шесть суток; при отказе
+    вместо ожидания суточный добег не выполнился бы ни разу, и свежая
+    практика в индекс не попала бы. 29.08.2026 так и вышло — добег умер
+    в 05:00 с «обход уже идёт». Правило — «на суды ходит один процесс»,
+    а не «второй умирает».
+
+    Проверяется ровно решение: с `wait=True` замок берётся без `LOCK_NB`,
+    то есть ядро ставит процесс в очередь, а не отказывает.
+    """
+    import fcntl
+
+    flags: list[int] = []
+    monkeypatch.setattr(fcntl, "flock", lambda handle, how: flags.append(how))
+
+    claim_harvest_lock(Settings(raw_root=tmp_path / "ждём"), wait=True)
+    claim_harvest_lock(Settings(raw_root=tmp_path / "не-ждём"))
+
+    waiting, refusing = flags
+    assert not waiting & fcntl.LOCK_NB, "ожидание — это блокирующий flock"
+    assert refusing & fcntl.LOCK_NB, "остальным ждать нечего: отказ и выход"

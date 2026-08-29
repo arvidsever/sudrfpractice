@@ -22,14 +22,14 @@ from harvester.http import AlreadyHarvesting, claim_harvest_lock
 def test_second_process_is_turned_away(tmp_path) -> None:
     """Замок держит между ПРОЦЕССАМИ, а не потоками: launchd поднимает
     отдельные процессы, и `threading.Lock` их не видит."""
-    settings = Settings(raw_root=tmp_path / "raw")
+    settings = Settings(lock_path=tmp_path / "замок")
     claim_harvest_lock(settings)
 
     program = textwrap.dedent(f"""
         from harvester.config import Settings
         from harvester.http import AlreadyHarvesting, claim_harvest_lock
         try:
-            claim_harvest_lock(Settings(raw_root={str(tmp_path / "raw")!r}))
+            claim_harvest_lock(Settings(lock_path={str(tmp_path / "замок")!r}))
         except AlreadyHarvesting:
             raise SystemExit(7)
         raise SystemExit(0)
@@ -43,11 +43,11 @@ def test_lock_dies_with_the_process(tmp_path) -> None:
     """После выхода замок свободен. Файл-флаг остался бы лежать и запирал
     бы сбор до тех пор, пока кто-нибудь про него не вспомнит; `flock`
     снимает ядро."""
-    settings = Settings(raw_root=tmp_path / "raw")
+    settings = Settings(lock_path=tmp_path / "замок")
     program = textwrap.dedent(f"""
         from harvester.config import Settings
         from harvester.http import claim_harvest_lock
-        claim_harvest_lock(Settings(raw_root={str(tmp_path / "raw")!r}))
+        claim_harvest_lock(Settings(lock_path={str(tmp_path / "замок")!r}))
     """)
     subprocess.run([sys.executable, "-c", program], check=True)
 
@@ -55,7 +55,7 @@ def test_lock_dies_with_the_process(tmp_path) -> None:
 
 
 def test_taken_twice_in_one_process_is_an_error(tmp_path) -> None:
-    settings = Settings(raw_root=tmp_path / "raw")
+    settings = Settings(lock_path=tmp_path / "замок")
     claim_harvest_lock(settings)
     with pytest.raises(AlreadyHarvesting):
         claim_harvest_lock(settings)
@@ -78,9 +78,31 @@ def test_waiting_asks_the_kernel_to_queue_instead_of_refusing(tmp_path, monkeypa
     flags: list[int] = []
     monkeypatch.setattr(fcntl, "flock", lambda handle, how: flags.append(how))
 
-    claim_harvest_lock(Settings(raw_root=tmp_path / "ждём"), wait=True)
-    claim_harvest_lock(Settings(raw_root=tmp_path / "не-ждём"))
+    claim_harvest_lock(Settings(lock_path=tmp_path / "ждём"), wait=True)
+    claim_harvest_lock(Settings(lock_path=tmp_path / "не-ждём"))
 
     waiting, refusing = flags
     assert not waiting & fcntl.LOCK_NB, "ожидание — это блокирующий flock"
     assert refusing & fcntl.LOCK_NB, "остальным ждать нечего: отказ и выход"
+
+
+def test_lock_survives_someone_deleting_the_file(tmp_path) -> None:
+    """Замок держится за inode, а не за имя.
+
+    29.08.2026 файл замка лежал внутри рабочего каталога и был оттуда
+    удалён. Работавший свод остался держать блокировку на осиротевшем
+    inode — невидимую для всех: любой второй обход входил свободно, то есть
+    защиты не было вовсе, а по логам всё выглядело исправно.
+    """
+    settings = Settings(lock_path=tmp_path / "замок")
+    claim_harvest_lock(settings)
+
+    settings.lock_path.unlink()
+
+    # Новый файл на месте старого имени. Захват обязан заметить подмену
+    # и не выдать за замок блокировку на файле, которого больше нет.
+    claim_harvest_lock(settings)
+    assert settings.lock_path.exists()
+
+    with pytest.raises(AlreadyHarvesting):
+        claim_harvest_lock(settings)

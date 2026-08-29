@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 from pydantic import Field
@@ -20,6 +21,17 @@ class Settings(BaseSettings):
 
     # Схема `postgresql+psycopg` — драйвер psycopg3; без неё SQLAlchemy ищет psycopg2.
     database_url: str = "postgresql+psycopg://localhost:5432/praktika"
+
+    #: Замок «на суды ходит один процесс». Лежит ВНЕ дерева кода намеренно:
+    #: 29.08.2026 он был внутри рабочего каталога, файл оттуда удалили, и
+    #: работавший обход остался держать блокировку на осиротевшем inode —
+    #: невидимую для всех, кто пришёл после. Каталог `/run/lock` для того
+    #: и существует; на маке его нет, поэтому там временный каталог.
+    lock_path: Path = Path(
+        "/run/lock/sudrf-harvester.lock"
+        if Path("/run/lock").is_dir()
+        else Path(tempfile.gettempdir()) / "sudrf-harvester.lock"
+    )
 
     #: Слой сырых HTML — источник истины. Парсеры заведомо будут дорабатываться,
     #: и архив избавляет от повторного обхода судов.

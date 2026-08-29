@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fcntl
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -70,21 +71,39 @@ def claim_harvest_lock(settings: Settings | None = None, *, wait: bool = False) 
     процесс умирает, поэтому «залипшего» замка после Ctrl+C или паники
     не остаётся — в отличие от файла-флага, который пришлось бы убирать
     руками ровно тогда, когда никто не помнит, что он есть.
+
+    **Замок держится за inode, а не за имя.** 29.08.2026 файл замка лежал
+    внутри рабочего каталога, его оттуда удалили — и свод остался держать
+    блокировку на осиротевшем inode, невидимую для всех остальных: любой
+    второй обход входил свободно. Отсюда две меры: файл живёт вне дерева
+    кода, а после захвата inode сверяется с тем, что лежит на диске.
     """
     settings = settings or default_settings
-    path = settings.raw_root.parent / ".harvester.lock"
+    path = settings.lock_path
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle = path.open("w")
-    if wait:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-    else:
+
+    while True:
+        # "a", а не "w": усекать нечего, нам нужен только сам файл.
+        handle = path.open("a")
+        if wait:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+        else:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                handle.close()
+                raise AlreadyHarvesting(
+                    f"обход уже идёт (замок {path}); второй процесс удвоил бы темп на ГАС"
+                ) from exc
+
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            handle.close()
-            raise AlreadyHarvesting(
-                f"обход уже идёт (замок {path}); второй процесс удвоил бы темп на ГАС"
-            ) from exc
+            same_file = path.stat().st_ino == os.fstat(handle.fileno()).st_ino
+        except FileNotFoundError:
+            same_file = False
+        if same_file:
+            break
+        # Пока мы ждали, файл подменили. Наш замок теперь ничей — берём заново.
+        handle.close()
     _HARVEST_LOCK.append(handle)
 
 

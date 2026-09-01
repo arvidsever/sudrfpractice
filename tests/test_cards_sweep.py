@@ -66,9 +66,37 @@ def test_court_on_pause_is_waited_out_not_dropped(monkeypatch) -> None:
     assert results[0].cards == 5
 
 
-def test_empty_pass_without_a_pause_ends_the_run(monkeypatch) -> None:
-    """Заход без карточек и без паузы повторялся бы вечно. Выходим,
-    launchd поднимет через полчаса."""
+def test_empty_pass_does_not_kill_the_thread_at_once(monkeypatch) -> None:
+    """Один пустой заход — не «дел нет», а чаще «суду сейчас нехорошо».
+
+    31.08.2026 суды несколько часов отвечали таймаутами; заход в 200
+    карточек не дал ни одной, и потоки 1, 2, 4 и 7 КСОЮ вышли навсегда —
+    поднять их мог только новый процесс, а он не запускался. К утру
+    из семи судов работали три, темп упал с 2 320 запросов в час до 105.
+    """
+    calls: list[str] = []
+    scripted = [
+        _result("1kas.sudrf.ru", collected=0, remaining=99),
+        _result("1kas.sudrf.ru", collected=0, remaining=99),
+        _result("1kas.sudrf.ru", collected=7, remaining=0),
+    ]
+
+    def fake(domain, **_):
+        calls.append(domain)
+        return scripted.pop(0)
+
+    monkeypatch.setattr(cards, "collect_cards", fake)
+    monkeypatch.setattr(cards, "EMPTY_ROUND_PAUSE_SECONDS", 0.01)
+    monkeypatch.setattr("harvester.directories.courts", lambda: [_court("1kas.sudrf.ru")])
+
+    results = cards.sweep_all()
+
+    assert len(calls) == 3, "после пустого захода суду дают ещё попытку"
+    assert results[0].cards == 7
+
+
+def test_thread_leaves_after_enough_empty_rounds(monkeypatch) -> None:
+    """Но и крутиться вхолостую нельзя: суд может молчать всерьёз."""
     calls: list[str] = []
 
     def fake(domain, **_):
@@ -76,14 +104,31 @@ def test_empty_pass_without_a_pause_ends_the_run(monkeypatch) -> None:
         return _result(domain, collected=0, remaining=99)
 
     monkeypatch.setattr(cards, "collect_cards", fake)
-    monkeypatch.setattr(
-        "harvester.directories.courts",
-        lambda: [_court("1kas.sudrf.ru"), _court("2kas.sudrf.ru")],
-    )
+    monkeypatch.setattr(cards, "EMPTY_ROUND_PAUSE_SECONDS", 0.01)
+    monkeypatch.setattr("harvester.directories.courts", lambda: [_court("1kas.sudrf.ru")])
 
     cards.sweep_all()
 
-    assert sorted(calls) == ["1kas.sudrf.ru", "2kas.sudrf.ru"], "по одному холостому заходу"
+    assert len(calls) == cards.EMPTY_ROUNDS_BEFORE_LEAVING
+
+
+def test_run_is_bounded_in_time(monkeypatch) -> None:
+    """Свод обязан иногда отпускать замок, иначе суточный добег его
+    не дождётся: 01.09.2026 добег простоял в очереди десять часов, потому
+    что `RuntimeMaxSec` к `Type=oneshot` не применяется и молча ничего
+    не делал. Ограничение живёт в коде, а не в systemd."""
+    calls: list[str] = []
+
+    def fake(domain, **_):
+        calls.append(domain)
+        return _result(domain, collected=1, remaining=99)
+
+    monkeypatch.setattr(cards, "collect_cards", fake)
+    monkeypatch.setattr("harvester.directories.courts", lambda: [_court("1kas.sudrf.ru")])
+
+    cards.sweep_all(max_hours=0)
+
+    assert calls == [], "срок вышел до первого захода — не начинаем"
 
 
 def test_every_court_gets_its_own_thread(monkeypatch) -> None:

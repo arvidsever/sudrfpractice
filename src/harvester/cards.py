@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from datetime import date
 
@@ -212,6 +213,22 @@ def collect_cards(
 #: прогон не теряет счёт остатка.
 ROUND_CHUNK = 200
 
+#: Сколько пустых заходов подряд суд получает, прежде чем поток уйдёт.
+#: Один пустой заход — это не «дел нет», а чаще «суд сейчас не в духе»:
+#: 31.08.2026 многочасовой шторм таймаутов выгнал четыре суда из семи,
+#: и вернуть их мог только новый процесс.
+EMPTY_ROUNDS_BEFORE_LEAVING = 5
+
+#: Пауза между пустыми заходами. Меньше получасового отступления: суд
+#: нас не придерживал, ему просто нехорошо.
+EMPTY_ROUND_PAUSE_SECONDS = 120.0
+
+#: Сколько часов работает один прогон. Не от зависаний: свод обязан
+#: иногда отпускать замок, иначе суточный добег не дождётся очереди.
+#: `RuntimeMaxSec` в systemd для этого не годится — к `Type=oneshot`
+#: он не применяется и молча ничего не делает.
+MAX_RUN_HOURS = 6.0
+
 
 def sweep_all(
     *,
@@ -220,6 +237,7 @@ def sweep_all(
     cartoteka_id: str | None = None,
     with_act: bool = False,
     since: date | None = None,
+    max_hours: float = MAX_RUN_HOURS,
 ) -> list[CardSweepResult]:
     """Обойти карточки всех судов — поток на суд, пока они не кончатся.
 
@@ -238,6 +256,18 @@ def sweep_all(
     ровно как в прогоне очереди. Свод идёт сутками, пауза длится полчаса,
     и уход означал бы, что суд, однажды придержавший нас, больше
     не собирается никогда.
+
+    **Пустой заход тоже не повод уходить насовсем.** 31.08.2026 суды
+    несколько часов отвечали таймаутами; заход в 200 карточек не дал
+    ни одной, и потоки 1, 2, 4 и 7 КСОЮ вышли — навсегда, потому что
+    поднять их мог только новый процесс. К утру из семи судов работали
+    три, темп упал с 2 320 запросов в час до 105. Теперь уход только
+    после `EMPTY_ROUNDS_BEFORE_LEAVING` пустых заходов подряд.
+
+    **И сам прогон ограничен по времени.** Не от зависаний: свод обязан
+    иногда отпускать замок, иначе суточный добег не дождётся очереди.
+    Ограничение стоит здесь, а не в systemd, потому что `RuntimeMaxSec`
+    к `Type=oneshot` не применяется вовсе — оно там молча ничего не делало.
     """
     from .directories import courts
 
@@ -245,9 +275,14 @@ def sweep_all(
     totals: dict[str, CardSweepResult] = {}
     guard = threading.Lock()
     stop = threading.Event()
+    deadline = time.monotonic() + max_hours * 3600
 
     def work(domain: str) -> None:
+        empty_rounds = 0
         while not stop.is_set():
+            if time.monotonic() > deadline:
+                log.info("%s: время прогона вышло, отпускаем замок", domain)
+                return
             if not wait_out_cooldown(domain, stop):
                 return
             result = collect_cards(
@@ -284,11 +319,20 @@ def sweep_all(
             )
             if result.remaining == 0:
                 return
-            # Ни одной карточки и ждать нечего — брать больше нечего либо
-            # что-то не так. Крутиться вхолостую нельзя: заход без паузы
-            # и без работы повторялся бы бесконечно. Поднимет заново launchd.
-            if result.cards == 0 and cooldown_left(domain) <= 0:
+            if result.cards:
+                empty_rounds = 0
+                continue
+            if cooldown_left(domain) > 0:
+                continue  # суд придержал — досыпаем паузу, это не пустота
+            # Заход без карточек и без паузы: суд молчит, отвечает
+            # таймаутами или отдаёт не то. Крутиться вхолостую нельзя,
+            # но и уходить с первого раза — тоже: так свод и выродился
+            # в три суда из семи. Даём суду отдышаться и пробуем снова.
+            empty_rounds += 1
+            if empty_rounds >= EMPTY_ROUNDS_BEFORE_LEAVING:
+                log.warning("%s: %d пустых захода подряд, поток уходит", domain, empty_rounds)
                 return
+            stop.wait(EMPTY_ROUND_PAUSE_SECONDS)
 
     threads = [
         threading.Thread(target=work, args=(domain,), name=f"карточки-{domain}", daemon=True)

@@ -146,7 +146,7 @@ systemctl stop sudrf-cards.timer sudrf-cards.service   # тишина
 systemctl start sudrf-cards.timer                       # обратно
 ```
 
-## Что нельзя потерять## Что нельзя потерять
+## Что нельзя потерять
 
 Инварианты, каждый оплачен ошибкой:
 

@@ -205,10 +205,13 @@ participant = Table(
     Column("name", Text, nullable=False),
     Column("articles", Text, nullable=True, comment="перечень статей: уголовные и КоАП"),
     Column("outcome", Text, nullable=True, comment="результат в отношении лица: уголовные"),
-    Column("inn", String(16), nullable=True),
-    Column("kpp", String(16), nullable=True),
-    Column("ogrn", String(20), nullable=True),
-    Column("ogrnip", String(20), nullable=True),
+    # Свободный текст, а не поле фиксированной длины: под заголовком «КПП»
+    # суд может написать название организации, и портал отдаст как есть.
+    # `varchar(16)` на такой строке уронил свод карточек на трое суток.
+    Column("inn", Text, nullable=True),
+    Column("kpp", Text, nullable=True),
+    Column("ogrn", Text, nullable=True),
+    Column("ogrnip", Text, nullable=True),
 )
 
 hearing = Table(
@@ -218,7 +221,7 @@ hearing = Table(
     Column("case_pk", BigInteger, ForeignKey("case.id", ondelete="CASCADE"), nullable=False),
     Column("event", Text, nullable=False),
     Column("hearing_date", Date, nullable=True),
-    Column("hearing_time", String(8), nullable=True),
+    Column("hearing_time", Text, nullable=True),
     Column("place", Text, nullable=True),
     Column("result", Text, nullable=True),
     Column("published_at", Date, nullable=True),

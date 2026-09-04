@@ -186,3 +186,30 @@ def test_order_and_filters_decide_the_price(seeded) -> None:
     assert set(with_act) == {"свежее", "старое"}
     assert "старое" not in recent and "свежее" in recent
     engine.dispose()
+
+
+def test_one_bad_card_does_not_kill_the_court(seeded, monkeypatch, case_card) -> None:
+    """04.09.2026 одна карточка увела из сбора четыре суда на трое суток.
+
+    В колонке «КПП» лежало `СНТ "Торгреклама 89"` — двадцать знаков против
+    `varchar(16)`. Вставка участников падала, транзакция откатывалась,
+    исключение выходило из потока суда и убивало его до конца прогона.
+    Страница к тому моменту уже в сырье: разобрать заново можно когда
+    угодно, а терять из-за неё суд нельзя.
+    """
+    from harvester.db import store
+
+    _serve(monkeypatch, case_card)
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("value too long for type character varying(16)")
+
+    monkeypatch.setattr(store, "save_card", explode)
+    monkeypatch.setattr("harvester.cards.save_card", explode)
+
+    result = collect_cards("5kas.sudrf.ru", settings=seeded, bulk=False)
+
+    assert result.failed == 1, "карточка должна попасть в неудачи"
+    assert result.cards == 0
+    # Главное: свод вернулся, а не выбросил исключение наружу.
+    assert result.remaining == 1, "дело осталось непрочитанным и будет взято снова"

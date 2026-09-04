@@ -156,29 +156,40 @@ def collect_cards(
             )
             card = parse_card(html)
 
-            with engine.begin() as connection:
-                raw_id = save_raw_page(connection, record)
-                save_card(connection, row.id, card)
-                participants += len(card.participants)
+            # Разбор и запись — тоже под присмотром, а не только сеть.
+            # 04.09.2026 одна карточка с двадцатью знаками в колонке
+            # `varchar(16)` уронила транзакцию, исключение вышло из потока
+            # и убило суд до конца прогона: 4, 1, 2 и 7 КСОЮ простояли
+            # так трое суток. Страница уже в сырье, разобрать её заново
+            # можно когда угодно — а вот терять из-за неё суд нельзя.
+            try:
+                with engine.begin() as connection:
+                    raw_id = save_raw_page(connection, record)
+                    save_card(connection, row.id, card)
+                    participants += len(card.participants)
 
-                stored_here = 0
-                for text_number, text in sorted(card.act_texts.items()):
-                    if len(text) < MIN_PLAUSIBLE_LENGTH:
-                        continue
-                    act_id = act_for_text(connection, row.id, text_number)
-                    statement = insert(act_text).values(
-                        act_id=act_id, raw_page_id=raw_id, plain_text=text
-                    )
-                    connection.execute(
-                        statement.on_conflict_do_update(
-                            index_elements=["act_id"],
-                            set_={
-                                "plain_text": statement.excluded.plain_text,
-                                "raw_page_id": statement.excluded.raw_page_id,
-                            },
+                    stored_here = 0
+                    for text_number, text in sorted(card.act_texts.items()):
+                        if len(text) < MIN_PLAUSIBLE_LENGTH:
+                            continue
+                        act_id = act_for_text(connection, row.id, text_number)
+                        statement = insert(act_text).values(
+                            act_id=act_id, raw_page_id=raw_id, plain_text=text
                         )
-                    )
-                    stored_here += 1
+                        connection.execute(
+                            statement.on_conflict_do_update(
+                                index_elements=["act_id"],
+                                set_={
+                                    "plain_text": statement.excluded.plain_text,
+                                    "raw_page_id": statement.excluded.raw_page_id,
+                                },
+                            )
+                        )
+                        stored_here += 1
+            except Exception as exc:  # noqa: BLE001 — одна карточка не роняет суд
+                failed += 1
+                log.warning("%s: запись не удалась: %s", row.case_number, exc)
+                continue
 
             texts += stored_here
             cards += 1
@@ -334,8 +345,21 @@ def sweep_all(
                 return
             stop.wait(EMPTY_ROUND_PAUSE_SECONDS)
 
+    def guarded(domain: str) -> None:
+        """Поток не имеет права умереть молча.
+
+        Три раза подряд свод терял суды именно так: поток кончался —
+        по уходу, по исключению, — и суд выбывал до конца прогона, а по
+        журналу всё выглядело исправно. Ошибку видно, суд возвращается
+        следующим прогоном.
+        """
+        try:
+            work(domain)
+        except Exception:
+            log.exception("%s: поток упал", domain)
+
     threads = [
-        threading.Thread(target=work, args=(domain,), name=f"карточки-{domain}", daemon=True)
+        threading.Thread(target=guarded, args=(domain,), name=f"карточки-{domain}", daemon=True)
         for domain in domains
     ]
     for thread in threads:

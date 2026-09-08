@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 
@@ -241,6 +242,49 @@ EMPTY_ROUND_PAUSE_SECONDS = 120.0
 MAX_RUN_HOURS = 6.0
 
 
+def make_probe(
+    domain: str,
+    *,
+    settings: Settings | None = None,
+    cartoteka_id: str | None = None,
+    with_act: bool = False,
+    since: date | None = None,
+) -> Callable[[], bool]:
+    """Способ спросить суд на паузе, отвечает ли он снова.
+
+    Один запрос настоящей карточки — не главную и не форму: восстановиться
+    может отдельный модуль делопроизводства, а не сайт целиком. Страница
+    не сохраняется: проба отвечает на вопрос «пускает ли», а карточку
+    заберёт обычный заход, когда пауза снимется.
+
+    `arm_back_off=False` обязателен: проба не имеет права продлить паузу,
+    которую проверяет, иначе стук по суду превратился бы в вечное ожидание.
+    """
+    settings = settings or default_settings
+
+    def probe() -> bool:
+        engine = create_engine(settings.database_url)
+        try:
+            with engine.connect() as connection:
+                rows = pending_cards(
+                    connection, domain, 1, cartoteka_id, with_act=with_act, since=since
+                )
+        finally:
+            engine.dispose()
+        if not rows:
+            return True  # брать нечего — ждать тем более незачем
+
+        row = rows[0]
+        court = find_court(domain)
+        cartoteka = find_cartoteka(row.cartoteka_id)
+        url = card_url(court, row.case_id, row.case_uid, cartoteka.listing_delo_id, cartoteka.new)
+        with open_client(court, settings=settings, bulk=True) as client:
+            response = client.get(url, arm_back_off=False, ignore_cooldown=True)
+        return classify(response.text).verdict is not Verdict.THROTTLED
+
+    return probe
+
+
 def sweep_all(
     *,
     settings: Settings | None = None,
@@ -290,11 +334,14 @@ def sweep_all(
 
     def work(domain: str) -> None:
         empty_rounds = 0
+        probe = make_probe(
+            domain, settings=settings, cartoteka_id=cartoteka_id, with_act=with_act, since=since
+        )
         while not stop.is_set():
             if time.monotonic() > deadline:
                 log.info("%s: время прогона вышло, отпускаем замок", domain)
                 return
-            if not wait_out_cooldown(domain, stop):
+            if not wait_out_cooldown(domain, stop, probe):
                 return
             result = collect_cards(
                 domain,

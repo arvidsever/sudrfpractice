@@ -12,6 +12,7 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
@@ -112,8 +113,29 @@ def cooldown_left(domain: str) -> float:
     return max(0.0, _COOLDOWNS.get(domain, 0.0) - time.monotonic())
 
 
-def wait_out_cooldown(domain: str, stop: threading.Event) -> bool:
+#: Как часто стучаться в суд на паузе, если проба задана. Три минуты —
+#: это двадцать запросов в час против тысячи двухсот при обычном сборе,
+#: то есть вежливый стук, а не давление.
+PROBE_EVERY_SECONDS = 180.0
+
+
+def wait_out_cooldown(
+    domain: str,
+    stop: threading.Event,
+    probe: Callable[[], bool] | None = None,
+) -> bool:
     """Дождаться конца паузы у суда. `False` — ждать больше нечего, уходим.
+
+    `probe` — способ спросить суд, отвечает ли он снова. Нужен потому, что
+    получасовая пауза ниоткуда не взялась: платформа отказывает вёрсткой
+    с кодом 200 и никогда не говорит, сколько ждать. За сутки 07.09.2026 —
+    190 отказов, ни одного `429`, ни одного `Retry-After`. Тридцать минут
+    на отказ — это 95 судо-часов простоя в сутки на четыре суда, и если
+    суды оживают раньше, платим мы их зря.
+
+    Проба не продлевает паузу и не считается сбором: один запрос,
+    `arm_back_off=False`. Ответил суд — пауза снимается и в журнал идёт
+    настоящее время восстановления; не ответил — ждём дальше.
 
     Раньше поток на паузе просто заканчивался: ночной прогон всё равно
     умирал к утру, и следующий запуск начинал с чистого листа. При
@@ -126,12 +148,48 @@ def wait_out_cooldown(domain: str, stop: threading.Event) -> bool:
     клиента: `_COOLDOWNS` рядом, и обоим потребителям (очередь, свод
     карточек) не нужно тянуть друг у друга приватные имена.
     """
+    started = time.monotonic()
+    planned = cooldown_left(domain)
+    next_probe = started + PROBE_EVERY_SECONDS
+
     while not stop.is_set():
         left = cooldown_left(domain)
         if left <= 0:
+            if planned > 0:
+                log.info(
+                    "%s: пауза выдержана целиком, %.0f мин",
+                    domain,
+                    (time.monotonic() - started) / 60,
+                )
             return True
+
+        if probe is not None and time.monotonic() >= next_probe:
+            next_probe = time.monotonic() + PROBE_EVERY_SECONDS
+            waited = (time.monotonic() - started) / 60
+            try:
+                answered = probe()
+            except Exception as exc:  # noqa: BLE001 — проба не роняет ожидание
+                log.warning("%s: проба не удалась: %s", domain, exc)
+                answered = False
+            if answered:
+                log.info(
+                    "%s: ответил через %.0f мин, планировалось ждать %.0f — пауза снята",
+                    domain,
+                    waited,
+                    planned / 60,
+                )
+                _COOLDOWNS.pop(domain, None)
+                return True
+            log.info("%s: проба на %.0f мин — ещё держит", domain, waited)
+
         log.info("%s: пауза ещё %.0f мин, поток ждёт", domain, left / 60)
-        stop.wait(min(left, 60.0))
+        # Спать до ближайшего из двух сроков: конца паузы и следующей пробы.
+        # Иначе сон съедал паузу целиком, и проба не срабатывала ни разу —
+        # именно так этот код и был написан сначала.
+        delay = min(left, 60.0)
+        if probe is not None:
+            delay = min(delay, max(next_probe - time.monotonic(), 0.0))
+        stop.wait(delay)
     return False
 
 
@@ -264,8 +322,19 @@ class CourtClient:
         self._cooldown_until[host] = time.monotonic() + seconds
         log.warning("%s: пауза %.0f мин — %s", host, seconds / 60, reason)
 
-    def get(self, url: str, *, arm_back_off: bool = True) -> Response:
+    def get(
+        self, url: str, *, arm_back_off: bool = True, ignore_cooldown: bool = False
+    ) -> Response:
         """Запрос через дроссель.
+
+        `ignore_cooldown=True` — постучаться в суд, который сейчас на паузе.
+        Годится ровно для одного случая: узнать, отвечает ли он снова.
+        Платформа никогда не говорит, сколько ждать (за сутки 07.09.2026 —
+        ни одного `429` и ни одного `Retry-After`, все 190 отказов пришли
+        вёрсткой с кодом 200), поэтому получасовая пауза — догадка, и цена
+        догадки 95 судо-часов простоя в сутки. Ставить вместе
+        с `arm_back_off=False`: проба не имеет права продлить паузу,
+        которую проверяет.
 
         `arm_back_off=False` снимает автоматическое отступление по ответу
         «Информация временно недоступна». Нужно там, где этот ответ ещё
@@ -277,7 +346,7 @@ class CourtClient:
         """
         host = httpx.URL(url).host
         left = self.cooldown_left(host)
-        if left > 0:
+        if left > 0 and not ignore_cooldown:
             raise CourtOnCooldown(f"{host}: ещё {left / 60:.0f} мин паузы")
         if self.bulk and not within_night_window(self.settings.night_window):
             start, end = self.settings.night_window

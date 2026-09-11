@@ -123,6 +123,18 @@ def main(argv: list[str] | None = None) -> int:
         help="наоборот: забрать сырьё из архива на диск (проверка, что копия разворачивается)",
     )
     archive.add_argument("--limit", type=int, help="при --restore: взять не больше N файлов")
+    archive.add_argument(
+        "--prune",
+        action="store_true",
+        help="освободить диск: удалить локальные страницы, подтверждённые в бакете",
+    )
+    archive.add_argument(
+        "--keep-free",
+        type=float,
+        default=0.5,
+        metavar="ДОЛЯ",
+        help="при --prune: сколько диска держать свободным (по умолчанию 0.5)",
+    )
 
     runner = sub.add_parser("run", help="прогнать очередь: собрать перечни по окнам")
     runner.add_argument("--court", action="append", help="ограничить суды, можно повторять")
@@ -396,6 +408,21 @@ def main(argv: list[str] | None = None) -> int:
 
             restored = pull(store, settings.raw_root, limit=args.limit, dry_run=args.dry_run)
             print(f"скачано {restored.downloaded}, уже было {restored.skipped}")
+            return 0
+
+        if args.prune:
+            from .archive import prune
+
+            freed = prune(
+                store,
+                settings.raw_root,
+                keep_free=args.keep_free,
+                dry_run=args.dry_run,
+            )
+            print(
+                f"удалено {freed.removed}, освобождено {freed.bytes_freed / 2**30:.1f} ГБ, "
+                f"оставлено неподтверждённых {freed.kept}"
+            )
             return 0
 
         uploads = list(raw_uploads(settings.raw_root))

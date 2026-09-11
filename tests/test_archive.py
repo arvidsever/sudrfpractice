@@ -143,3 +143,62 @@ class _RestoreStore(_Store):
     def get_file(self, key: str, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(self.objects[key])
+
+
+def _disk(monkeypatch, *, total: int, free: int) -> None:
+    """Подменить показания диска: prune смотрит на них, а не на файлы."""
+    import collections
+
+    usage = collections.namedtuple("usage", "total used free")
+    monkeypatch.setattr("shutil.disk_usage", lambda _: usage(total, total - free, free))
+
+
+def test_unconfirmed_pages_are_never_deleted(tmp_path, monkeypatch) -> None:
+    """Подтверждение — только выдача бакета, и ничего кроме.
+
+    Соблазн считать подтверждением журнал («выгружено 23 690») стоил бы
+    корпуса: 11.09.2026 такая запись появлялась четверо суток подряд,
+    а дамп при этом не выгружался вовсе — падал следующий шаг. Страница,
+    которой нет в хранилище, остаётся на диске, сколько бы места
+    ни требовалось: обход судов заново — это недели.
+    """
+    from harvester.archive import prune
+
+    raw = tmp_path / "raw"
+    (raw / "1kas.sudrf.ru" / "2025" / "ab").mkdir(parents=True)
+    есть = raw / "1kas.sudrf.ru" / "2025" / "ab" / "подтверждённая.html.zst"
+    нет = raw / "1kas.sudrf.ru" / "2025" / "ab" / "своя.html.zst"
+    есть.write_bytes(b"x" * 100)
+    нет.write_bytes(b"y" * 100)
+
+    class _Bucket:
+        def list_keys(self, prefix):
+            key = "raw/1kas.sudrf.ru/2025/ab/подтверждённая.html.zst"
+            return [key] if key.startswith(prefix) else []
+
+    _disk(monkeypatch, total=1000, free=100)  # свободно 10 % при пороге 50 %
+
+    result = prune(_Bucket(), raw)
+
+    assert not есть.exists(), "подтверждённая страница должна быть удалена"
+    assert нет.exists(), "неподтверждённую удалять нельзя ни при каком дефиците места"
+    assert (result.removed, result.kept) == (1, 1)
+
+
+def test_prune_does_nothing_while_there_is_room(tmp_path, monkeypatch) -> None:
+    """Порог — это условие, а не расписание: пока места хватает, файлы лежат."""
+    from harvester.archive import prune
+
+    raw = tmp_path / "raw"
+    (raw / "1kas.sudrf.ru" / "2025" / "ab").mkdir(parents=True)
+    страница = raw / "1kas.sudrf.ru" / "2025" / "ab" / "стр.html.zst"
+    страница.write_bytes(b"x" * 100)
+
+    class _Bucket:
+        def list_keys(self, prefix):
+            return ["raw/1kas.sudrf.ru/2025/ab/стр.html.zst"]
+
+    _disk(monkeypatch, total=1000, free=900)  # свободно 90 %
+
+    assert prune(_Bucket(), raw).removed == 0
+    assert страница.exists()

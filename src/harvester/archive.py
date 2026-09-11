@@ -134,6 +134,92 @@ def pull(store, raw_root: Path, *, limit: int | None = None, dry_run: bool = Fal
     return PullResult(downloaded=downloaded, skipped=skipped)
 
 
+@dataclass(frozen=True, slots=True)
+class PruneResult:
+    removed: int
+    kept: int
+    bytes_freed: int
+
+
+def _year_dirs(raw_root: Path) -> list[Path]:
+    """Каталоги `<домен>/<год>`, от старого года к новому.
+
+    Год — единица чистки, а не отдельный файл: так и список ключей
+    из бакета остаётся маленьким (одна выдача на каталог вместо миллиона
+    ключей в памяти), и локально остаётся свежее, которое вероятнее
+    понадобится для переразбора.
+    """
+    dirs = [
+        year
+        for domain in raw_root.iterdir()
+        if domain.is_dir()
+        for year in domain.iterdir()
+        if year.is_dir()
+    ]
+    return sorted(dirs, key=lambda path: (path.name, path.parent.name))
+
+
+def prune(
+    store,
+    raw_root: Path,
+    *,
+    keep_free: float = 0.5,
+    dry_run: bool = False,
+) -> PruneResult:
+    """Освободить диск, удалив страницы, подтверждённые в бакете.
+
+    Условие записано заранее, ещё до переезда (`docs/storage.md`):
+    как только занято больше половины диска — удалять локальные страницы,
+    **подтверждённые запросом к бакету**, и никогда — записью в журнале.
+    Журнал говорит, что выгрузка прошла; 11.09.2026 он говорил это
+    четверо суток подряд, пока дамп не выгружался вовсе.
+
+    Поэтому подтверждение здесь ровно одно: ключ пришёл из выдачи
+    хранилища. Не нашёлся — файл остаётся лежать, сколько бы места
+    ни требовалось. Сырьё дороже базы: база выводится из него переразбором
+    за часы, а обход судов заново — недели.
+
+    Чистка идёт от старых лет к новым и останавливается, как только
+    свободного места стало достаточно.
+    """
+    import shutil
+
+    total, _, free = shutil.disk_usage(raw_root)
+    need = int(total * keep_free) - free
+    if need <= 0:
+        log.info("свободно %.0f %% — чистить нечего", 100 * free / total)
+        return PruneResult(removed=0, kept=0, bytes_freed=0)
+
+    removed = kept = freed = 0
+    for directory in _year_dirs(raw_root):
+        prefix = PREFIX_RAW + directory.relative_to(raw_root).as_posix() + "/"
+        confirmed = set(store.list_keys(prefix))
+        for path in sorted(directory.rglob("*")):
+            if not path.is_file() or path.suffix not in (".zst", ".json"):
+                continue
+            if PREFIX_RAW + path.relative_to(raw_root).as_posix() not in confirmed:
+                kept += 1
+                continue
+            size = path.stat().st_size
+            if not dry_run:
+                path.unlink()
+            removed += 1
+            freed += size
+            if freed >= need:
+                break
+        if freed >= need:
+            break
+
+    log.info(
+        "удалено %d, освобождено %.1f ГБ, оставлено неподтверждённых %d%s",
+        removed,
+        freed / 2**30,
+        kept,
+        " (вхолостую)" if dry_run else "",
+    )
+    return PruneResult(removed=removed, kept=kept, bytes_freed=freed)
+
+
 def model_upload(model_path: Path) -> Upload | None:
     """Веса решателя. Имя с отметкой обучения, чтобы старые не затирались."""
     if not model_path.exists():

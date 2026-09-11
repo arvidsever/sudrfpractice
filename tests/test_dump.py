@@ -116,3 +116,40 @@ def test_socket_url_does_not_dump_the_wrong_database() -> None:
     assert (
         _connection_uri(socket_url) == "postgresql://sudrf@/praktika?host=%2Fvar%2Frun%2Fpostgresql"
     )
+
+
+def test_dump_is_taken_on_the_data_disk(no_pg_dump, tmp_path) -> None:
+    """Дамп снимается рядом с сырьём, а не в каталоге по умолчанию.
+
+    11.09.2026 выгрузка падала четверо суток подряд, и по журналу это
+    выглядело исправно: сырьё уходило в бакет, сообщение об успехе было,
+    а падал уже следующий шаг. На сервере `/tmp` — это tmpfs, то есть
+    оперативная память на 1,9 ГБ; дамп её перерос. Свежей копии базы
+    не было четыре дня, притом что `status` не жаловался ни на что.
+
+    Диск с сырьём рассчитан на эти объёмы по построению — там и место.
+    """
+    from harvester.config import Settings
+
+    settings = Settings(raw_root=tmp_path / "данные" / "raw")
+    settings.raw_root.mkdir(parents=True)
+    seen: list[Path] = []
+
+    def remember(command, **kwargs):
+        target = Path(command[command.index("-f") + 1])
+        seen.append(target)
+        target.write_bytes(b"dump")
+
+    import harvester.dump
+
+    original = harvester.dump.subprocess.run
+    harvester.dump.subprocess.run = remember
+    try:
+        make_dump(_Bucket(), settings=settings, today=date(2026, 9, 12))
+    finally:
+        harvester.dump.subprocess.run = original
+
+    assert seen, "pg_dump должен быть вызван"
+    assert tmp_path / "данные" in seen[0].parents, (
+        f"дамп снят мимо диска с данными: {seen[0]}"
+    )

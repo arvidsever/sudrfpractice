@@ -88,7 +88,12 @@ def make_dump(
         return None
 
     database = _database_name(settings.database_url)
-    with tempfile.TemporaryDirectory() as workspace:
+    # Рядом с сырьём, а не во временном каталоге по умолчанию: на сервере
+    # `/tmp` — это tmpfs, то есть оперативная память, и 11.09.2026 дамп
+    # перерос её (1,9 ГБ) на глазах. Четверо суток подряд выгрузка падала,
+    # а сырьё при этом уходило успешно — падал только дамп, после него.
+    # Диск, на котором лежит сырьё, по определению рассчитан на эти данные.
+    with tempfile.TemporaryDirectory(dir=settings.raw_root.parent) as workspace:
         path = Path(workspace) / "praktika.dump"
         log.info("снимаю дамп базы %s", database)
         # -Fc: формат, который читает pg_restore выборочно, по таблицам.
@@ -104,7 +109,6 @@ def make_dump(
                 str(path),
             ],
             check=True,
-            capture_output=True,
         )
         size_mb = path.stat().st_size / 1024**2
         log.info("дамп %.0f МБ, выгружаю в %s", size_mb, key)

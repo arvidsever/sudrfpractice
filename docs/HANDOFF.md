@@ -46,7 +46,7 @@ su sudrf -c 'cd /srv/sudrfpractice && .venv/bin/python -m harvester status'
 
 | Таймер | Что делает | Когда |
 | --- | --- | --- |
-| `sudrf-cards.timer` | свод карточек, `--with-act --since 01.01.2025` | каждые 30 мин |
+| `sudrf-cards.timer` | свод карточек, `--with-act --since 01.01.2024` | каждые 30 мин |
 | `sudrf-catchup.timer` | добег свежей практики, окно 7 дней | 05:00 |
 | `sudrf-archive.timer` | сырьё и дамп базы в S3 | раз в 6 часов |
 

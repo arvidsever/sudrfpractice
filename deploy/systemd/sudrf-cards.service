@@ -8,7 +8,7 @@ User=sudrf
 WorkingDirectory=/srv/sudrfpractice
 # Объём выбран владельцем 27.08.2026: дела со ссылкой на акт с 2025 года.
 # Прайс-лист остальных вариантов — docs/roadmap.md, этап 5.
-ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester cards --all --with-act --since 01.01.2025
+ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester cards --all --with-act --since 01.01.2024
 # Прогон сам выходит, когда все суды придержаны; таймер поднимет снова.
 # Второй заход не начнётся: харвестер держит flock на машину.
 # Свой срок прогон держит сам (MAX_RUN_HOURS в cards.py) и выходит чисто,

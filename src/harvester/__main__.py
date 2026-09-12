@@ -95,6 +95,10 @@ def main(argv: list[str] | None = None) -> int:
     find.add_argument("--result", action="append", help="результат, точная формулировка")
     find.add_argument("--lower-court", action="append", help="суд первой инстанции")
     find.add_argument("--number", help="часть номера дела")
+    find.add_argument(
+        "--text",
+        help='слова в тексте акта: "фраза целиком", -исключение, or — альтернатива',
+    )
     find.add_argument("--from", dest="decided_from", help="дата решения от, дд.мм.гггг")
     find.add_argument("--to", dest="decided_to", help="дата решения до, дд.мм.гггг")
     find.add_argument("--with-act", action="store_true", help="только с опубликованным актом")
@@ -304,6 +308,7 @@ def main(argv: list[str] | None = None) -> int:
                 results=tuple(args.result or ()),
                 lower_courts=tuple(args.lower_court or ()),
                 number=args.number,
+                text=args.text,
                 decided_from=as_date(args.decided_from),
                 decided_to=as_date(args.decided_to),
                 with_act=True if args.with_act else None,
@@ -313,8 +318,15 @@ def main(argv: list[str] | None = None) -> int:
             with_facets=args.facets,
         )
 
-        print(f"найдено {found.total} дел из {len(found.rows)} показанных")
-        print("это поиск ПО СОБРАННОМУ: индекс ещё наполняется\n")
+        print(f"найдено {found.total} дел, показано {len(found.rows)}")
+        # Раньше здесь стояло «индекс ещё наполняется». Индекс закрыт 25.08,
+        # и с тех пор оговорка занижала корпус — ровно наоборот тому, ради
+        # чего её ставили. Неполны теперь тексты, и только при поиске по ним
+        # об этом и стоит говорить.
+        if args.text:
+            print(f"тексты собраны у {found.texts_share:.0%} дел с опубликованным актом\n")
+        else:
+            print(f"это {found.collected_share:.1%} собранного индекса\n")
         for row in found.rows:
             act = {True: "акт есть", False: "акта нет", None: "акт не проверен"}[
                 row["act_published"]
@@ -325,6 +337,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             if row["judge"] or row["result"]:
                 print(f"       {row['judge'] or '—'} · {(row['result'] or '—')[:70]}")
+            if row.get("snippet"):
+                print(f"       {' '.join(row['snippet'].split())}")
         for name, values in found.facets.items():
             print(f"\n{name}:")
             for value, count in values:

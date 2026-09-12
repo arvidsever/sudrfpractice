@@ -105,3 +105,114 @@ def test_facets_count_inside_the_filter(db_settings) -> None:
     assert "Иванов И. И." not in judges, "судья уголовной картотеки в фасете гражданской"
     assert judges["Белоусова Ю. К."] == 2
     engine.dispose()
+
+
+TEXTS = {
+    # номер дела -> текст акта
+    "88-1/2026": (
+        "Суд кассационной инстанции полагает, что неустойка явно несоразмерна "
+        "последствиям нарушения обязательства, в связи с чем подлежит снижению."
+    ),
+    "88-2/2026": (
+        "Доводы о пропуске срока исковой давности отклонены: течение срока "
+        "было прервано признанием долга."
+    ),
+}
+
+
+def _seed_texts(engine):
+    """Положить тексты двум делам. `tsv` считает сама база — колонка
+    generated, и в этом весь смысл проверки: индекс и запрос обязаны
+    ходить одним словарём."""
+    from sqlalchemy import insert, select
+
+    from harvester.db.schema import act, act_text
+
+    with engine.begin() as connection:
+        for number, text in TEXTS.items():
+            case_pk = connection.execute(
+                select(case.c.id).where(case.c.case_number == number)
+            ).scalar_one()
+            act_id = connection.execute(
+                insert(act).values(case_pk=case_pk, text_number=1).returning(act.c.id)
+            ).scalar_one()
+            connection.execute(insert(act_text).values(act_id=act_id, plain_text=text))
+
+
+def test_text_search_finds_by_word_form_not_by_substring(db_settings) -> None:
+    """Полнотекст ищет словами, а не подстрокой: «несоразмерность»
+    в запросе обязана найти «несоразмерна» в тексте. Это и делает русский
+    словарь в `tsvector`; на `ilike` такой запрос не нашёл бы ничего."""
+    engine = _seed(db_settings)
+    _seed_texts(engine)
+
+    found = run(engine, Query(text="несоразмерность неустойки"))
+
+    assert found.total == 1
+    assert found.rows[0]["case_number"] == "88-1/2026"
+    engine.dispose()
+
+
+def test_text_search_composes_with_facets(db_settings) -> None:
+    """Слова — такое же сужение, как суд или дата, и складываются с ними."""
+    engine = _seed(db_settings)
+    _seed_texts(engine)
+
+    assert run(engine, Query(text="срок давности")).total == 1
+    assert run(engine, Query(text="срок давности", results=("ОТМЕНЕНО",))).total == 0
+    engine.dispose()
+
+
+def test_a_case_with_two_matching_acts_is_found_once(db_settings) -> None:
+    """Дело — единица выдачи, акт — нет.
+
+    У дела бывает несколько актов, и соединение вместо `EXISTS` размножило бы
+    дело по числу совпавших текстов: «найдено 2» там, где дело одно.
+    """
+    from sqlalchemy import insert, select
+
+    from harvester.db.schema import act, act_text
+
+    engine = _seed(db_settings)
+    _seed_texts(engine)
+    with engine.begin() as connection:
+        case_pk = connection.execute(
+            select(case.c.id).where(case.c.case_number == "88-1/2026")
+        ).scalar_one()
+        act_id = connection.execute(
+            insert(act).values(case_pk=case_pk, text_number=2).returning(act.c.id)
+        ).scalar_one()
+        connection.execute(
+            insert(act_text).values(act_id=act_id, plain_text="Неустойка несоразмерна также.")
+        )
+
+    found = run(engine, Query(text="несоразмерна"))
+
+    assert found.total == 1, "дело с двумя совпавшими актами — одно дело"
+    assert len(found.rows) == 1
+    engine.dispose()
+
+
+def test_snippet_shows_why_it_matched(db_settings) -> None:
+    """Без куска текста выдача не отвечает на вопрос «за что нашлось»."""
+    engine = _seed(db_settings)
+    _seed_texts(engine)
+
+    row = run(engine, Query(text="несоразмерность")).rows[0]
+
+    assert "«" in row["snippet"], f"совпадение должно быть выделено: {row['snippet']}"
+    assert "несоразмерна" in row["snippet"]
+    engine.dispose()
+
+
+def test_texts_share_is_reported_only_when_asked_about_texts(db_settings) -> None:
+    """Потолок полнотекста — доля разобранных актов, и он не равен полноте
+    индекса. Ссылок на акты 1,6 млн, текстов 375 тысяч: поиск по словам
+    видит четверть того, что видит поиск по реквизитам, и молчать об этом
+    нельзя. Но и считать лишнего при обычном запросе незачем."""
+    engine = _seed(db_settings)
+    _seed_texts(engine)
+
+    assert run(engine, Query()).texts_share == 0.0
+    assert run(engine, Query(text="неустойка")).texts_share == 1.0
+    engine.dispose()

@@ -21,9 +21,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
-from sqlalchemy import Engine, Select, func, select
+from sqlalchemy import Engine, Select, func, literal_column, select
 
-from .db.schema import case
+from .db.schema import act, act_text, case
 
 #: Сколько дел отдавать за раз, если не сказано иначе.
 PAGE_SIZE = 25
@@ -43,6 +43,9 @@ class Query:
     results: tuple[str, ...] = ()
     lower_courts: tuple[str, ...] = ()
     number: str | None = None
+    #: Слова в тексте акта. Синтаксис `websearch_to_tsquery`: кавычки —
+    #: фраза целиком, `-слово` — исключение, `or` — альтернатива.
+    text: str | None = None
     decided_from: date | None = None
     decided_to: date | None = None
     #: Только дела с опубликованным актом. `None` — неважно.
@@ -58,7 +61,63 @@ class Found:
     #: Доля собранного корпуса на момент запроса. Не украшение: без неё
     #: «найдено 12» читается как «в природе двенадцать».
     collected_share: float
+    #: Доля актов, чей текст уже разобран, — и она же потолок полнотекста.
+    #: Ссылок на акты 1,6 млн, а текстов пока 375 тысяч: поиск по словам
+    #: видит четверть того, что видит поиск по реквизитам. Считается
+    #: только когда о текстах и спрашивают.
+    texts_share: float = 0.0
     facets: dict[str, list[tuple[str, int]]] = field(default_factory=dict)
+
+
+#: Словарь, которым нарезан индекс. Он же стоит в `tsvector`-колонке,
+#: и разойтись они не имеют права: тогда запрос перестанет попадать
+#: в индекс и молча уедет на перебор восьми гигабайт текста.
+REGCONFIG = literal_column("'russian'")
+
+#: Колонку `tsv` держит миграция, а не схема: это generated-колонка,
+#: и описывать её в двух местах — верный способ однажды разойтись.
+TSV = literal_column("act_text.tsv")
+
+
+def _tsquery(text: str):
+    return func.websearch_to_tsquery(REGCONFIG, text)
+
+
+def _matching_acts(text: str):
+    """Есть ли у дела акт, текст которого отвечает запросу.
+
+    Через `EXISTS`, а не соединением: у дела бывает несколько актов,
+    и соединение размножило бы дело по числу совпавших — «найдено 8 675»
+    считало бы акты, выдавая их за дела.
+    """
+    return (
+        select(literal_column("1"))
+        .select_from(act.join(act_text, act_text.c.act_id == act.c.id))
+        .where(act.c.case_pk == case.c.id, TSV.op("@@")(_tsquery(text)))
+        .exists()
+    )
+
+
+def _snippet(text: str):
+    """Кусок текста вокруг совпадения — иначе непонятно, за что нашлось.
+
+    Считается только для показанных строк: это скалярный подзапрос
+    в списке выборки, а не в условии.
+    """
+    return (
+        select(
+            func.ts_headline(
+                REGCONFIG,
+                act_text.c.plain_text,
+                _tsquery(text),
+                "MaxFragments=1, MaxWords=30, MinWords=15, StartSel=«, StopSel=»",
+            )
+        )
+        .select_from(act.join(act_text, act_text.c.act_id == act.c.id))
+        .where(act.c.case_pk == case.c.id, TSV.op("@@")(_tsquery(text)))
+        .limit(1)
+        .scalar_subquery()
+    )
 
 
 def _narrow(statement: Select, query: Query) -> Select:
@@ -77,6 +136,8 @@ def _narrow(statement: Select, query: Query) -> Select:
         # Номер дела пишут по-разному, и точное совпадение почти никогда
         # не то, что имеют в виду. Триграммный индекс это и держит.
         statement = statement.where(case.c.case_number.ilike(f"%{query.number}%"))
+    if query.text:
+        statement = statement.where(_matching_acts(query.text))
     if query.decided_from is not None:
         statement = statement.where(case.c.decision_date >= query.decided_from)
     if query.decided_to is not None:
@@ -119,10 +180,17 @@ def run(engine: Engine, query: Query, *, with_facets: bool = False) -> Found:
         ).scalar_one()
         collected = connection.execute(select(func.count()).select_from(case)).scalar_one()
 
+        texts_share = 0.0
+        if query.text:
+            acts = connection.execute(select(func.count()).select_from(act)).scalar_one()
+            texts = connection.execute(select(func.count()).select_from(act_text)).scalar_one()
+            texts_share = texts / acts if acts else 0.0
+
+        columns = (*COLUMNS, _snippet(query.text).label("snippet")) if query.text else COLUMNS
         rows = [
             dict(row._mapping)
             for row in connection.execute(
-                _narrow(select(*COLUMNS), query)
+                _narrow(select(*columns), query)
                 # Свежие дела вперёд: практику ищут от нового к старому.
                 # `nulls last` — потому что нерассмотренные дела без даты
                 # решения иначе всплыли бы первыми.
@@ -150,5 +218,6 @@ def run(engine: Engine, query: Query, *, with_facets: bool = False) -> Found:
         total=total,
         rows=rows,
         collected_share=total / collected if collected else 0.0,
+        texts_share=texts_share,
         facets=facets,
     )

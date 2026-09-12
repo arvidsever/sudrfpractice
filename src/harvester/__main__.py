@@ -106,6 +106,10 @@ def main(argv: list[str] | None = None) -> int:
     find.add_argument("--limit", type=int, default=25)
     find.add_argument("--offset", type=int, default=0)
 
+    text_of = sub.add_parser("act", help="напечатать текст акта по номеру дела")
+    text_of.add_argument("number", help="номер дела, целиком или частью")
+    text_of.add_argument("--limit", type=int, default=1, help="сколько актов показать")
+
     catch = sub.add_parser("catchup", help="добрать опубликованное за последние дни")
     catch.add_argument("--days", type=int, default=3, help="сколько дней назад, по умолчанию 3")
     catch.add_argument("--court", action="append")
@@ -287,6 +291,52 @@ def main(argv: list[str] | None = None) -> int:
         print(f"дамп выгружен: {key}" if key else "дамп за сегодня уже есть")
         return 0
 
+    if args.command == "act":
+        from sqlalchemy import create_engine, select
+
+        from .config import settings
+        from .db.schema import act, act_text, case
+
+        engine = create_engine(settings.database_url)
+        with engine.connect() as connection:
+            rows = connection.execute(
+                select(
+                    case.c.case_number,
+                    case.c.court_domain,
+                    case.c.decision_date,
+                    case.c.judge,
+                    case.c.result,
+                    case.c.card_url,
+                    act_text.c.plain_text,
+                )
+                .select_from(
+                    case.join(act, act.c.case_pk == case.c.id).join(
+                        act_text, act_text.c.act_id == act.c.id
+                    )
+                )
+                .where(case.c.case_number.ilike(f"%{args.number}%"))
+                .order_by(case.c.decision_date.desc().nulls_last(), act.c.text_number)
+                .limit(args.limit)
+            ).all()
+
+        if not rows:
+            # Разделяем два разных «нет»: дела не нашлось или текст не разобран.
+            # Второе — законное состояние, а не сбой, и молчать о нём нельзя.
+            print(
+                f"текста нет: либо дела «{args.number}» нет в корпусе,"
+                " либо его карточка ещё не разобрана"
+            )
+            return 1
+
+        for row in rows:
+            print(f"{row.case_number}  {row.court_domain}  {row.decision_date or '—'}")
+            print(f"{row.judge or '—'} · {row.result or '—'}")
+            print(row.card_url or "")
+            print()
+            print(row.plain_text)
+            print()
+        return 0
+
     if args.command == "search":
         from datetime import datetime
 
@@ -339,6 +389,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"       {row['judge'] or '—'} · {(row['result'] or '—')[:70]}")
             if row.get("snippet"):
                 print(f"       {' '.join(row['snippet'].split())}")
+            # Ссылка — не украшение: цитата в процессуальном документе
+            # обязана проверяться, а проверяется она карточкой на сайте суда.
+            if row["card_url"]:
+                print(f"       {row['card_url']}")
         for name, values in found.facets.items():
             print(f"\n{name}:")
             for value, count in values:

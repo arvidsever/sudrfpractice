@@ -324,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
         # чего её ставили. Неполны теперь тексты, и только при поиске по ним
         # об этом и стоит говорить.
         if args.text:
-            print(f"тексты собраны у {found.texts_share:.0%} дел с опубликованным актом\n")
+            print(f"тексты разобраны у {found.texts_share:.0%} актов — это потолок поиска\n")
         else:
             print(f"это {found.collected_share:.1%} собранного индекса\n")
         for row in found.rows:

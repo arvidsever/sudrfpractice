@@ -178,13 +178,18 @@ def run(engine: Engine, query: Query, *, with_facets: bool = False) -> Found:
         total = connection.execute(
             _narrow(select(func.count()).select_from(case), query)
         ).scalar_one()
-        collected = connection.execute(select(func.count()).select_from(case)).scalar_one()
-
-        texts_share = 0.0
+        # Обе доли считаются только тогда, когда о них спросят. Полный
+        # счёт `case` — 2,9 с на 2,75 млн строк, и платить их за число,
+        # которое не покажут, незачем: при поиске по словам потолок задают
+        # тексты, а не индекс.
+        collected_share = texts_share = 0.0
         if query.text:
             acts = connection.execute(select(func.count()).select_from(act)).scalar_one()
             texts = connection.execute(select(func.count()).select_from(act_text)).scalar_one()
             texts_share = texts / acts if acts else 0.0
+        else:
+            collected = connection.execute(select(func.count()).select_from(case)).scalar_one()
+            collected_share = total / collected if collected else 0.0
 
         columns = (*COLUMNS, _snippet(query.text).label("snippet")) if query.text else COLUMNS
         rows = [
@@ -217,7 +222,7 @@ def run(engine: Engine, query: Query, *, with_facets: bool = False) -> Found:
     return Found(
         total=total,
         rows=rows,
-        collected_share=total / collected if collected else 0.0,
+        collected_share=collected_share,
         texts_share=texts_share,
         facets=facets,
     )

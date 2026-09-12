@@ -213,6 +213,14 @@ def test_texts_share_is_reported_only_when_asked_about_texts(db_settings) -> Non
     engine = _seed(db_settings)
     _seed_texts(engine)
 
-    assert run(engine, Query()).texts_share == 0.0
-    assert run(engine, Query(text="неустойка")).texts_share == 1.0
+    обычный = run(engine, Query())
+    словами = run(engine, Query(text="неустойка"))
+
+    assert обычный.texts_share == 0.0, "при обычном запросе тексты ни при чём"
+    assert словами.texts_share == 1.0
+
+    # И обратно: полный счёт корпуса — 2,9 с на 2,75 млн строк, и при
+    # поиске по словам он не нужен, потому что потолок задают не дела.
+    assert словами.collected_share == 0.0, "лишний счёт корпуса не оплачиваем"
+    assert обычный.collected_share > 0
     engine.dispose()

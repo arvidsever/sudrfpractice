@@ -1,5 +1,5 @@
 [Unit]
-Description=Выгрузка сырья и дампа базы в S3
+Description=Выгрузка сырья и дампа базы в S3, затем чистка диска
 
 [Service]
 Type=oneshot
@@ -7,4 +7,10 @@ User=sudrf
 WorkingDirectory=/srv/sudrfpractice
 ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester archive
 ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester dump
+# Чистка последней и в том же задании, а не своим таймером: так она
+# никогда не совпадёт с выгрузкой, которая иначе падала бы на файлах,
+# удалённых у неё из-под рук. Упала выгрузка или дамп — чистка в этот
+# раз не идёт, и это правильно: следующий заход через шесть часов.
+# Удаляется только то, что подтверждено выдачей бакета.
+ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester archive --prune
 TimeoutStartSec=infinity

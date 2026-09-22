@@ -48,7 +48,7 @@ su sudrf -c 'cd /srv/sudrfpractice && .venv/bin/python -m harvester status'
 | --- | --- | --- |
 | `sudrf-cards.timer` | свод карточек, `--with-act`, без ограничения по дате | каждые 30 мин |
 | `sudrf-catchup.timer` | добег свежей практики, окно 7 дней | 05:00 |
-| `sudrf-archive.timer` | сырьё и дамп базы в S3 | раз в 6 часов |
+| `sudrf-archive.timer` | сырьё и дамп базы в S3, затем чистка диска до половины | раз в 6 часов |
 
 ```bash
 systemctl list-timers 'sudrf-*'

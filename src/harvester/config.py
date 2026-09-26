@@ -87,7 +87,10 @@ class Settings(BaseSettings):
     s3_bucket: str = ""
     #: Адрес хранилища FirstVDS. Регион обязателен: подпись AWS v4 включает
     #: его в вычисление, и без него boto3 отказывается отправлять запрос.
-    s3_endpoint_url: str = "https://s3.firstvds.ru"
+    #: До 24.09.2026 было `s3.firstvds.ru`; провайдер убрал это имя из DNS
+    #: без объявления, и выгрузка двое суток падала на разрешении имени.
+    #: Актуальный адрес — в панели, кнопка «Доступы» у хранилища.
+    s3_endpoint_url: str = "https://firsts3.ru"
     s3_region: str = "ru-central1"
     s3_access_key: str = ""
     s3_secret_key: str = ""

@@ -13,4 +13,9 @@ ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester dump
 # раз не идёт, и это правильно: следующий заход через шесть часов.
 # Удаляется только то, что подтверждено выдачей бакета.
 ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester archive --prune
+# Письмо, если задание упало второй раз подряд, и ещё одно, когда починилось.
+# Исход systemd кладёт в SERVICE_RESULT; счётчик неудач живёт между
+# запусками в /var/lib/sudrf. «-» — чтобы неудача письма не роняла задание.
+ExecStopPost=-/srv/sudrfpractice/.venv/bin/python -m harvester alert %n
+StateDirectory=sudrf
 TimeoutStartSec=infinity

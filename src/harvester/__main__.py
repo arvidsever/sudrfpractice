@@ -106,6 +106,10 @@ def main(argv: list[str] | None = None) -> int:
     find.add_argument("--limit", type=int, default=25)
     find.add_argument("--offset", type=int, default=0)
 
+    warn = sub.add_parser("alert", help="учесть исход задания и написать, если упало дважды")
+    warn.add_argument("unit", nargs="?", help="имя задания systemd; исход — из SERVICE_RESULT")
+    warn.add_argument("--test", action="store_true", help="отправить пробное письмо")
+
     text_of = sub.add_parser("act", help="напечатать текст акта по номеру дела")
     text_of.add_argument("number", help="номер дела, целиком или частью")
     text_of.add_argument("--limit", type=int, default=1, help="сколько актов показать")
@@ -289,6 +293,28 @@ def main(argv: list[str] | None = None) -> int:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
         key = make_dump(S3Store(), keep=args.keep, force=args.force)
         print(f"дамп выгружен: {key}" if key else "дамп за сегодня уже есть")
+        return 0
+
+    if args.command == "alert":
+        import logging
+        import os
+
+        from .alert import handle, smtp_sender
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        send = smtp_sender()
+        if args.test:
+            send("пробное письмо", "Если это письмо дошло, тревоги сервера дойдут тоже.")
+            print("пробное письмо отправлено")
+            return 0
+        state = Path(os.environ.get("STATE_DIRECTORY", "."))
+        result = os.environ.get("SERVICE_RESULT", "unknown")
+        try:
+            subject = handle(args.unit, result, state, send)
+        except Exception as exc:  # noqa: BLE001 — тревога не роняет задание
+            print(f"письмо не ушло: {exc}")
+            return 0
+        print(f"{args.unit}: {result}" + (f", письмо: {subject}" if subject else ""))
         return 0
 
     if args.command == "act":

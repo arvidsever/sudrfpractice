@@ -95,6 +95,14 @@ class Settings(BaseSettings):
     s3_access_key: str = ""
     s3_secret_key: str = ""
 
+    #: Почта для тревог (`alert.py`). Пароль — пароль приложения Gmail,
+    #: а не от аккаунта; как и ключи S3, живёт только в `.env` на сервере.
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 465
+    smtp_user: str = ""
+    smtp_password: str = ""
+    alert_to: str = ""
+
     request_timeout_seconds: float = 30.0
     max_retries: int = 3
 

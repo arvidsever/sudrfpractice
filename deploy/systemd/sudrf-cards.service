@@ -6,8 +6,8 @@ Documentation=file:///srv/sudrfpractice/docs/roadmap.md
 Type=oneshot
 User=sudrf
 WorkingDirectory=/srv/sudrfpractice
-# Объём выбран владельцем 27.08.2026: дела со ссылкой на акт с 2025 года.
-# Прайс-лист остальных вариантов — docs/roadmap.md, этап 5.
+# Объём выбирает владелец: с 22.09.2026 — все дела со ссылкой на акт,
+# без ограничения по дате. История расширения — docs/roadmap.md, задача 5.1.
 ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester cards --all --with-act
 # Прогон сам выходит, когда все суды придержаны; таймер поднимет снова.
 # Второй заход не начнётся: харвестер держит flock на машину.
@@ -16,3 +16,7 @@ ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester cards --all --with-ac
 # к Type=oneshot systemd не применяет вовсе, он там молча ничего не делал,
 # а срок у oneshot ограничивает именно TimeoutStartSec.
 TimeoutStartSec=7h
+# Письмо, если задание упало второй раз подряд, и ещё одно, когда починилось
+# (alert.py). «-» — чтобы неудача письма не роняла само задание.
+ExecStopPost=-/srv/sudrfpractice/.venv/bin/python -m harvester alert %n
+StateDirectory=sudrf

@@ -8,3 +8,7 @@ WorkingDirectory=/srv/sudrfpractice
 # Окно с запасом назад, а не «со вчера»: портал публикует и задним числом.
 ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester catchup --days 7
 TimeoutStartSec=infinity
+# Письмо, если задание упало второй раз подряд, и ещё одно, когда починилось
+# (alert.py). «-» — чтобы неудача письма не роняла само задание.
+ExecStopPost=-/srv/sudrfpractice/.venv/bin/python -m harvester alert %n
+StateDirectory=sudrf

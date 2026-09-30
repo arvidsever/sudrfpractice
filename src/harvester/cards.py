@@ -108,6 +108,7 @@ def collect_cards(
     cartoteka_id: str | None = None,
     with_act: bool = False,
     since: date | None = None,
+    until: float | None = None,
 ) -> CardSweepResult:
     settings = settings or default_settings
     raw_store = RawStore(settings.raw_root)
@@ -124,6 +125,12 @@ def collect_cards(
 
     with open_client(court, settings=settings, bulk=bulk) as client:
         for row in targets:
+            # Срок прогона проверяется на каждой карточке, а не между заходами.
+            # 30.09.2026 заход в 200 карточек у суда, отдающего по одной раз
+            # в 13 с, шёл около часа; начатый под конец шестого часа, он упёрся
+            # в страховку systemd на седьмом, и свод был убит, а не вышел сам.
+            if until is not None and time.monotonic() > until:
+                break
             cartoteka = find_cartoteka(row.cartoteka_id)
             url = card_url(
                 court, row.case_id, row.case_uid, cartoteka.listing_delo_id, cartoteka.new
@@ -355,6 +362,7 @@ def sweep_all(
                 domain,
                 settings=settings,
                 limit=chunk,
+                until=deadline,
                 cartoteka_id=cartoteka_id,
                 with_act=with_act,
                 since=since,

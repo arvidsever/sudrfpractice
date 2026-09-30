@@ -117,6 +117,27 @@ def test_card_without_text_is_knowledge_too(seeded, monkeypatch) -> None:
     engine.dispose()
 
 
+def test_deadline_stops_the_round_not_just_the_next_one(seeded, monkeypatch, case_card) -> None:
+    """Срок прогона проверяется на каждой карточке.
+
+    30.09.2026 шестичасовой предел проверялся только между заходами;
+    заход в 200 карточек длился около часа, и свод, начавший его под конец
+    шестого часа, убил systemd на седьмом. Истёкший срок — ни одного запроса.
+    """
+    import time
+
+    asked: list[str] = []
+    monkeypatch.setattr(
+        "harvester.http.CourtClient.get",
+        lambda self, url, **_: asked.append(url),
+    )
+
+    result = collect_cards("5kas.sudrf.ru", settings=seeded, bulk=False, until=time.monotonic() - 1)
+
+    assert asked == [], "срок истёк — суд не спрашиваем"
+    assert result.remaining == 1, "невзятая карточка остаётся в очереди"
+
+
 def test_throttling_stops_the_sweep(seeded, monkeypatch, temporarily_unavailable) -> None:
     _serve(monkeypatch, temporarily_unavailable)
     result = collect_cards("5kas.sudrf.ru", settings=seeded, bulk=False)

@@ -16,6 +16,10 @@ ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester cards --all --with-ac
 # к Type=oneshot systemd не применяет вовсе, он там молча ничего не делал,
 # а срок у oneshot ограничивает именно TimeoutStartSec.
 TimeoutStartSec=7h
+# 75 — «замок у другого обхода, не сейчас». Так бывает каждый день: добег
+# ждёт в очереди, пока идёт свод, и берёт замок сразу после него. Это не
+# поломка, и считать её неудачей для тревоги нельзя.
+SuccessExitStatus=75
 # Письмо, если задание упало второй раз подряд, и ещё одно, когда починилось
 # (alert.py). «-» — чтобы неудача письма не роняла само задание.
 ExecStopPost=-/srv/sudrfpractice/.venv/bin/python -m harvester alert %n

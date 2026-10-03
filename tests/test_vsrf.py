@@ -235,3 +235,57 @@ def test_arbitration_claim_is_counted_but_not_kept() -> None:
 
     assert claim.economic is True
     assert claim.claim_id == "kad:303-АД26-1", "ключ — номер производства ВС, не ссылка"
+
+
+def test_unstable_paging_is_cured_by_a_narrower_window(db_settings, tmp_path) -> None:
+    """Сайт листает нестабильно: за сентябрь 2026 по КоАП три строки попали
+    на две страницы, три другие — ни на одну. Окно, которое не сошлось,
+    делится пополам по датам, пока половины не сойдутся со счётчиком."""
+    import json
+    import re as regex
+
+    from sqlalchemy import create_engine, func, select
+
+    from harvester.db.schema import vsrf_act, vsrf_window
+    from harvester.raw import RawStore
+    from harvester.vsrf import _items, sweep_listing
+
+    first, second = (
+        '<div class="CaseStyle_case_item__' + part
+        for part in _page("vsrf_acts.html").content.split('<div class="CaseStyle_case_item__')[1:]
+    )
+
+    def page(content: str, total: int) -> str:
+        data = {
+            "props": {
+                "pageProps": {
+                    "initialItemsData": {"content": content, "totalElements": total, "last": True}
+                }
+            }
+        }
+        return f'<script id="__NEXT_DATA__">{json.dumps(data, ensure_ascii=False)}</script>'
+
+    class Flaky:
+        def get(self, url: str):
+            start, end = regex.findall(r"actDate(?:From|To)=([\d.]+)", url)
+            if "CIVIL" not in url:
+                return _Response(page("", 0), url)
+            if (start, end) == ("01.09.2026", "30.09.2026"):
+                return _Response(page(first + first, 2), url)  # плывущая выдача
+            if end == "15.09.2026":
+                return _Response(page(first, 1), url)
+            return _Response(page(second, 1), url)
+
+    assert len(_items(first + second)) == 2
+    engine = create_engine(db_settings.database_url)
+    sweep_listing(
+        "acts", Flaky(), engine, RawStore(tmp_path), start=date(2026, 9, 1), today=date(2026, 9, 30)
+    )
+    with engine.connect() as connection:
+        kept = connection.execute(select(func.count()).select_from(vsrf_act)).scalar_one()
+        civil = connection.execute(
+            select(vsrf_window.c.total).where(vsrf_window.c.case_type == "CIVIL")
+        ).scalar_one()
+    engine.dispose()
+    assert kept == 2, "обе строки собраны — по половинам месяца"
+    assert civil == 2, "окно закрыто"

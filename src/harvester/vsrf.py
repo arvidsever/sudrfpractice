@@ -396,6 +396,46 @@ SOURCES = {
 }
 
 
+def _collect(source, case_type, start, end, client, engine, store) -> tuple[dict, int | None]:
+    build_url, parse, _, key = SOURCES[source]
+    rows: dict = {}
+    total = None
+    page = 0
+    while True:
+        response = client.get(build_url(case_type, start, end, page))
+        _save_raw(engine, store, response, "vsrf_listing")
+        listing = listing_page(response.text)
+        total = listing.total
+        rows.update({key(row): row for row in parse(listing.content)})
+        # Кончилась выдача — по признаку сайта или по пустой странице.
+        # Не по «нет наших строк»: страница экономической коллегии
+        # своих строк не даёт, а за ней могут идти наши.
+        if listing.last or not _items(listing.content):
+            return rows, total
+        page += 1
+
+
+def _closed(source, case_type, start, end, client, engine, store) -> tuple[dict, bool]:
+    """Окно, сверенное со счётчиком; не сошлось — пополам.
+
+    Сайт листает нестабильно: сортировка по неуникальному полю, и границы
+    страниц плавают. 03.10.2026 выдача КоАП за сентябрь отдала все 121
+    строку, но три попали на две страницы сразу, а три другие — ни на одну.
+    Повтор того же запроса не лечит; лечит окно поуже — то, что влезает
+    в страницу, не плавает.
+    """
+    rows, total = _collect(source, case_type, start, end, client, engine, store)
+    if total is not None and len(rows) == total:
+        return rows, True
+    if start >= end:
+        return rows, False
+    middle = start + (end - start) // 2
+    args = (client, engine, store)
+    left, left_ok = _closed(source, case_type, start, middle, *args)
+    right, right_ok = _closed(source, case_type, middle + timedelta(days=1), end, *args)
+    return {**rows, **left, **right}, left_ok and right_ok
+
+
 def sweep_listing(
     source: str,
     client,
@@ -409,7 +449,7 @@ def sweep_listing(
     """Пройти окна выдачи по месяцам. Окно закрывается, только если
     собранное сошлось со счётчиком сайта: молчаливый недосбор здесь
     ловится так же, как у КСОЮ, — сверкой, а не аккуратностью."""
-    build_url, parse, save, key = SOURCES[source]
+    save = SOURCES[source][2]
     today = today or date.today()
     fresh = today - timedelta(days=RECHECK_DAYS)
     collected_total = 0
@@ -429,28 +469,14 @@ def sweep_listing(
             if until is not None and time.monotonic() > until:
                 return collected_total
 
-            rows: dict = {}
-            total = None
-            page = 0
-            while True:
-                response = client.get(build_url(case_type, window_from, window_to, page))
-                _save_raw(engine, store, response, "vsrf_listing")
-                listing = listing_page(response.text)
-                total = listing.total
-                parsed = parse(listing.content)
-                rows.update({key(row): row for row in parsed})
-                # Кончилась выдача — по признаку сайта или по пустой странице.
-                # Не по «нет наших строк»: страница экономической коллегии
-                # своих строк не даёт, а за ней могут идти наши.
-                if listing.last or not _items(listing.content):
-                    break
-                page += 1
+            rows, ok = _closed(source, case_type, window_from, window_to, client, engine, store)
+            total = len(rows) if ok else None
 
             save(engine, case_type, list(rows.values()))
             collected_total += sum(
                 1 for row in rows.values() if not getattr(row, "economic", False)
             )
-            if total is not None and len(rows) == total:
+            if ok:
                 statement = insert(vsrf_window).values(
                     source=source,
                     case_type=case_type,
@@ -471,12 +497,11 @@ def sweep_listing(
                     )
             else:
                 log.warning(
-                    "%s %s %s: собрано %d, сайт обещал %s — окно не закрыто",
+                    "%s %s %s: не сошлось со счётчиком и по дням, собрано %d — окно не закрыто",
                     source,
                     case_type,
                     window_from,
                     len(rows),
-                    total,
                 )
     return collected_total
 

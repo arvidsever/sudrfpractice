@@ -205,6 +205,7 @@ def test_long_claim_id_does_not_break_the_sweep(db_settings) -> None:
         [
             ClaimRow(
                 claim_id=long_id,
+                economic=False,
                 number="ДК26-152",
                 received_date=None,
                 instance=None,
@@ -219,3 +220,18 @@ def test_long_claim_id_does_not_break_the_sweep(db_settings) -> None:
         stored = connection.execute(select(vsrf_claim.c.claim_id)).scalar_one()
     engine.dispose()
     assert stored == long_id
+
+
+def test_arbitration_claim_is_counted_but_not_kept() -> None:
+    """В выдаче «дел» по КоАП за сентябрь 2026 — 49 арбитражных из 121:
+    ссылка в картотеку арбитражных судов вместо карточки ВС. Без них сверка
+    со счётчиком не сходилась, и окно не закрывалось."""
+    from harvester.vsrf import parse_claims
+
+    row = """<div class="CaseStyle_case_item__x">
+        <a href="http://kad.arbitr.ru/Kad/Card?number=А40-252024%2F2022">303-АД26-1</a>
+        <span>Дата поступления:</span><span>05.09.2026</span></div>"""
+    (claim,) = parse_claims(row)
+
+    assert claim.economic is True
+    assert claim.claim_id.startswith("kad:")

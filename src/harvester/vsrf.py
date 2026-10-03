@@ -204,6 +204,10 @@ def parse_acts(content: str) -> list[ActRow]:
 @dataclass(frozen=True, slots=True)
 class ClaimRow:
     claim_id: str
+    #: Арбитражное дело: вместо карточки ВС — ссылка в картотеку арбитражных
+    #: судов. В выдаче КоАП таких 49 из 121 за сентябрь 2026 (дела по главе 25
+    #: АПК). Как и у актов: при сверке считаются, в базу не попадают.
+    economic: bool
     number: str | None
     received_date: date | None
     instance: str | None
@@ -219,12 +223,17 @@ def parse_claims(content: str) -> list[ClaimRow]:
     rows = []
     for item in _items(content):
         claim = _link(item, "/lk/practice/claims/")
-        if claim is None:
-            continue
+        economic = claim is None
+        if economic:
+            claim = _link(item, "http://kad.arbitr.ru/") or _link(item, "https://kad.arbitr.ru/")
+            if claim is None:
+                continue
+            claim = ("kad:" + claim[0], claim[1])
         fields = _fields(_segments(item))
         rows.append(
             ClaimRow(
                 claim_id=claim[0],
+                economic=economic,
                 number=claim[1] or None,
                 received_date=_date(fields.get("Дата поступления")),
                 instance=fields.get("Инстанция"),
@@ -342,6 +351,7 @@ def _store_acts(engine: Engine, case_type: str, rows: list[ActRow]) -> None:
 
 
 def _store_claims(engine: Engine, case_type: str, rows: list[ClaimRow]) -> None:
+    rows = [row for row in rows if not row.economic]
     if not rows:
         return
     values = [

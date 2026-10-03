@@ -228,7 +228,10 @@ def parse_claims(content: str) -> list[ClaimRow]:
             claim = _link(item, "http://kad.arbitr.ru/") or _link(item, "https://kad.arbitr.ru/")
             if claim is None:
                 continue
-            claim = ("kad:" + claim[0], claim[1])
+            # Ключ — номер производства ВС, а не ссылка: по одному арбитражному
+            # делу в ВС бывает несколько производств, и по ссылке они
+            # склеились бы (118 из 121 вместо 121).
+            claim = ("kad:" + claim[1], claim[1])
         fields = _fields(_segments(item))
         rows.append(
             ClaimRow(

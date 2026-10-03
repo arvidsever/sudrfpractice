@@ -234,4 +234,4 @@ def test_arbitration_claim_is_counted_but_not_kept() -> None:
     (claim,) = parse_claims(row)
 
     assert claim.economic is True
-    assert claim.claim_id.startswith("kad:")
+    assert claim.claim_id == "kad:303-АД26-1", "ключ — номер производства ВС, не ссылка"

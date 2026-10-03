@@ -241,3 +241,74 @@ appeal = Table(
     Column("ruling_date", Date, nullable=True),
     Column("study_result", Text, nullable=True),
 )
+
+
+# --- ВС РФ (docs/vsrf.md) ---------------------------------------------------
+#
+# Своими таблицами, а не в `case`: производство ВС не ложится в дело
+# с картотекой и `case_id`. Связь с нашим корпусом — по УИД
+# (`vsrf_claim.case_uid` ↔ `case.case_uid`), а акт связан с производством
+# идентификатором карточки (`vsrf_act.claim_id` ↔ `vsrf_claim.claim_id`).
+
+vsrf_act = Table(
+    "vsrf_act",
+    metadata,
+    #: Номер PDF в `/lk/practice/stor_pdf/{id}` — у акта он единственный.
+    Column("pdf_id", BigInteger, primary_key=True, autoincrement=False),
+    Column("number", Text, nullable=True, comment="номер производства ВС, напр. АПЛ26-207"),
+    Column("claim_id", String(32), nullable=True, comment="карточка: /lk/practice/claims/{id}"),
+    Column("act_kind", Text, nullable=True, comment="Определение, Постановление…"),
+    Column("act_date", Date, nullable=True),
+    Column("case_type", String(32), nullable=False, comment="CIVIL, CRIMINAL… — фильтр выдачи"),
+    Column("instance", Text, nullable=True),
+    Column("subject", Text, nullable=True),
+    Column("collegium", Text, nullable=True),
+    Column("judge", Text, nullable=True),
+    Column("first_seen", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    #: NULL — PDF ещё не брали. Очередь текстов — это и есть `IS NULL`.
+    Column("text_fetched_at", DateTime(timezone=True), nullable=True),
+)
+
+vsrf_act_text = Table(
+    "vsrf_act_text",
+    metadata,
+    Column(
+        "pdf_id",
+        BigInteger,
+        ForeignKey("vsrf_act.pdf_id", ondelete="CASCADE"),
+        primary_key=True,
+        autoincrement=False,
+    ),
+    Column("raw_page_id", BigInteger, ForeignKey("raw_page.id"), nullable=True),
+    #: Пусто — у PDF нет текстового слоя (скан без распознавания): кандидат
+    #: на распознавание потом, а не «акта нет».
+    Column("plain_text", Text, nullable=False),
+    # tsv — generated-колонка в миграции, как у act_text.
+)
+
+vsrf_claim = Table(
+    "vsrf_claim",
+    metadata,
+    Column("claim_id", String(32), primary_key=True),
+    Column("number", Text, nullable=True),
+    Column("received_date", Date, nullable=True),
+    Column("case_type", String(32), nullable=False),
+    Column("instance", Text, nullable=True),
+    Column("case_uid", Text, nullable=True, comment="УИД дела — ключ связи с нашим корпусом"),
+    Column("first_court", Text, nullable=True, comment="суд 1-й инстанции, дата решения, судья"),
+    Column("first_case_number", Text, nullable=True),
+    Column("subject", Text, nullable=True),
+    Column("first_seen", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+#: Окно выдачи, пройденное целиком и сверенное со счётчиком сайта.
+vsrf_window = Table(
+    "vsrf_window",
+    metadata,
+    Column("source", String(16), primary_key=True, comment="acts | claims"),
+    Column("case_type", String(32), primary_key=True),
+    Column("window_from", Date, primary_key=True),
+    Column("window_to", Date, nullable=False),
+    Column("total", Integer, nullable=False),
+    Column("done_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)

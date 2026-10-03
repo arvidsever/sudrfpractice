@@ -1,0 +1,10 @@
+[Unit]
+Description=Поднимать сбор ВС РФ каждые полчаса
+
+[Timer]
+OnBootSec=10min
+OnUnitInactiveSec=30min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

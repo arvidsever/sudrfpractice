@@ -14,6 +14,8 @@ dependencies = [
     "zstandard>=0.23",
     "numpy>=2.1",
     "boto3>=1.35",
+    # Текст из PDF актов ВС РФ: чистый Python, без системных библиотек.
+    "pypdf>=5.0",
 ]
 
 [project.optional-dependencies]

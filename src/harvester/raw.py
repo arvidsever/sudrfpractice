@@ -44,8 +44,8 @@ class RawStore:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
 
-    def path_for(self, court_domain: str, year: int, sha256: str) -> Path:
-        return self.root / court_domain / str(year) / sha256[:2] / f"{sha256}.html.zst"
+    def path_for(self, court_domain: str, year: int, sha256: str, extension: str = "html") -> Path:
+        return self.root / court_domain / str(year) / sha256[:2] / f"{sha256}.{extension}.zst"
 
     def save(
         self,
@@ -56,6 +56,7 @@ class RawStore:
         http_status: int,
         content_kind: str,
         fetched_at: datetime | None = None,
+        extension: str = "html",
     ) -> RawRecord:
         """Сохранить страницу как есть — в исходных байтах, до перекодировки.
 
@@ -64,7 +65,9 @@ class RawStore:
         """
         moment = fetched_at or datetime.now(UTC)
         sha256 = _digest(content)
-        target = self.path_for(court_domain, moment.year, sha256)
+        # PDF актов ВС — под своим расширением: файл `.html.zst` с PDF внутри
+        # сбил бы с толку первого же, кто полезет в сырьё руками.
+        target = self.path_for(court_domain, moment.year, sha256, extension)
         target.parent.mkdir(parents=True, exist_ok=True)
 
         record = RawRecord(

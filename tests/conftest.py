@@ -151,12 +151,28 @@ def db_settings(tmp_path, test_database_url: str):
         harvest_run,
         harvest_task,
         raw_page,
+        vsrf_act,
+        vsrf_act_text,
+        vsrf_claim,
+        vsrf_window,
     )
 
     settings = Settings(raw_root=tmp_path / "raw", database_url=test_database_url)
     engine = create_engine(settings.database_url)
     with engine.begin() as connection:
-        for table in (act_text, act, case, harvest_task, harvest_run, raw_page, cartoteka_volume):
+        for table in (
+            vsrf_act_text,
+            vsrf_act,
+            vsrf_claim,
+            vsrf_window,
+            act_text,
+            act,
+            case,
+            harvest_task,
+            harvest_run,
+            raw_page,
+            cartoteka_volume,
+        ):
             connection.execute(delete(table))
     engine.dispose()
     return settings

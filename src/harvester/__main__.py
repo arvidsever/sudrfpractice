@@ -106,6 +106,11 @@ def main(argv: list[str] | None = None) -> int:
     find.add_argument("--limit", type=int, default=25)
     find.add_argument("--offset", type=int, default=0)
 
+    supreme = sub.add_parser("vsrf", help="ВС РФ: выдача актов и «дел», затем тексты PDF")
+    supreme.add_argument("--only", choices=["acts", "claims", "texts"], help="один этап")
+    supreme.add_argument("--from", dest="start", help="дд.мм.гггг, по умолчанию 01.01.2005")
+    supreme.add_argument("--max-hours", type=float, default=6.0)
+
     warn = sub.add_parser("alert", help="учесть исход задания и написать, если упало дважды")
     warn.add_argument("unit", nargs="?", help="имя задания systemd; исход — из SERVICE_RESULT")
     warn.add_argument("--test", action="store_true", help="отправить пробное письмо")
@@ -298,6 +303,28 @@ def main(argv: list[str] | None = None) -> int:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
         key = make_dump(S3Store(), keep=args.keep, force=args.force)
         print(f"дамп выгружен: {key}" if key else "дамп за сегодня уже есть")
+        return 0
+
+    if args.command == "vsrf":
+        import logging
+
+        from .http import AlreadyHarvesting, claim_harvest_lock
+        from .vsrf import START, sweep
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        try:
+            # Свой замок платформы: ВС не делит бюджет с ГАС и не ждёт свод КСОЮ.
+            claim_harvest_lock(platform="vsrf")
+        except AlreadyHarvesting as exc:
+            print(exc)
+            return 75
+        result = sweep(
+            only=args.only,
+            start=_parse_date(args.start) if args.start else START,
+            max_hours=args.max_hours,
+        )
+        print(f"актов {result['acts']}, «дел» {result['claims']}, текстов {result['texts']}")
         return 0
 
     if args.command == "alert":

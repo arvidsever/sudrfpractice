@@ -16,7 +16,7 @@ from harvester.db.schema import metadata
 
 #: Колонка есть в базе, но не в metadata: generated-колонка `tsvector`
 #: описывается только миграцией — SQLAlchemy её всё равно не строит.
-GENERATED_ONLY = {"act_text": {"tsv"}}
+GENERATED_ONLY = {"act_text": {"tsv"}, "vsrf_act_text": {"tsv"}}
 
 
 @pytest.fixture(scope="module")

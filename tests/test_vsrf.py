@@ -1,0 +1,118 @@
+"""ВС РФ: разбор выдачи и обход окнами.
+
+Образцы — настоящие строки выдачи от 03.10.2026: два акта Апелляционной
+коллегии и одно производство-«дело» с заменёнными участниками и судьёй.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from pathlib import Path
+
+import pytest
+
+from harvester.vsrf import listing_page, months, parse_acts, parse_claims
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _page(name: str):
+    return listing_page((FIXTURES / name).read_text(encoding="utf-8"))
+
+
+def test_listing_comes_from_next_data() -> None:
+    page = _page("vsrf_acts.html")
+    assert page.total == 2
+    assert page.last is True
+
+
+def test_page_without_listing_is_an_error_not_zero() -> None:
+    """Сменись устройство сайта, пустая выдача молча стала бы «актов нет»."""
+    with pytest.raises(ValueError):
+        listing_page("<html><body>Электронная справочная</body></html>")
+
+
+def test_act_row_is_read_by_labels() -> None:
+    first, second = parse_acts(_page("vsrf_acts.html").content)
+
+    assert first.pdf_id == 2566920
+    assert first.number == "АПЛ26-207"
+    assert first.claim_id == "19-37056469"
+    assert first.act_kind == "Определение"
+    assert first.act_date == date(2026, 9, 10)
+    assert first.instance == "Апелляция"
+    assert first.collegium == "Апелляционная коллегия"
+    assert first.judge == "Зинченко И.Н."
+    assert first.subject.startswith("о признании частично недействующими")
+    assert second.number == "АПЛ26-204"
+
+
+def test_claim_row_carries_what_links_it_to_our_corpus() -> None:
+    """УИД и номер дела первой инстанции — ради них выдача «дел» и берётся.
+    Двоеточие внутри значения («…Судья: …») подписью не считается."""
+    (claim,) = parse_claims(_page("vsrf_claims.html").content)
+
+    assert claim.claim_id == "12-37210385"
+    assert claim.number == "85-КГ26-5-К1"
+    assert claim.received_date == date(2026, 9, 30)
+    assert claim.case_uid == "40RS0011-03-2025-000262-05"
+    assert claim.first_case_number == "2-3-235/2025"
+    assert claim.first_court.startswith("Козельский районный суд")
+    assert "Судья" in claim.first_court
+    assert claim.subject == "о признании недействительным пункта договора аренды земельного участка"
+
+
+def test_months_cover_the_range_without_gaps() -> None:
+    windows = list(months(date(2024, 1, 15), date(2024, 3, 10)))
+    assert windows == [
+        (date(2024, 1, 1), date(2024, 1, 31)),
+        (date(2024, 2, 1), date(2024, 2, 29)),
+        (date(2024, 3, 1), date(2024, 3, 10)),
+    ]
+
+
+class _Response:
+    def __init__(self, text: str, url: str):
+        self.text = text
+        self.content = text.encode("utf-8")
+        self.url = url
+        self.status_code = 200
+
+
+class _Client:
+    """Отдаёт одну и ту же выдачу на любой запрос, считая запросы."""
+
+    def __init__(self, text: str):
+        self.text = text
+        self.asked: list[str] = []
+
+    def get(self, url: str):
+        self.asked.append(url)
+        return _Response(self.text, url)
+
+
+def test_window_is_closed_only_when_it_matches_the_counter(db_settings, tmp_path) -> None:
+    """Окно, где собрано меньше, чем обещал сайт, остаётся открытым и будет
+    пройдено снова. Так же ловится недосбор у КСОЮ: сверкой со счётчиком."""
+    from sqlalchemy import create_engine, func, select
+
+    from harvester.db.schema import vsrf_act, vsrf_window
+    from harvester.raw import RawStore
+    from harvester.vsrf import sweep_listing
+
+    engine = create_engine(db_settings.database_url)
+    store = RawStore(tmp_path)
+    honest = (FIXTURES / "vsrf_acts.html").read_text(encoding="utf-8")
+    short = honest.replace('"totalElements": 2', '"totalElements": 3')
+
+    window = {"start": date(2026, 9, 1), "today": date(2026, 9, 30)}
+    sweep_listing("acts", _Client(short), engine, store, **window)
+    with engine.connect() as connection:
+        assert connection.execute(select(func.count()).select_from(vsrf_window)).scalar_one() == 0
+        assert connection.execute(select(func.count()).select_from(vsrf_act)).scalar_one() == 2
+
+    sweep_listing("acts", _Client(honest), engine, store, **window)
+    with engine.connect() as connection:
+        closed = connection.execute(select(func.count()).select_from(vsrf_window)).scalar_one()
+    assert closed == 5, "все пять видов судопроизводства за сентябрь сошлись со счётчиком"
+    engine.dispose()

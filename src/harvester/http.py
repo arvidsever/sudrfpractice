@@ -51,7 +51,25 @@ class AlreadyHarvesting(RuntimeError):
 _HARVEST_LOCK: list = []
 
 
-def claim_harvest_lock(settings: Settings | None = None, *, wait: bool = False) -> None:
+def platform_of(host: str) -> str:
+    """Платформа, к которой относится сайт: у каждой свой антибрутфорс.
+
+    Все суды на `sudrf.ru` — одна платформа ГАС «Правосудие», и считает
+    она запросы вместе (20.08.2026: семь судов ответили 429 в одну минуту).
+    Сайт ВС РФ — другая система со своей защитой; делить с ГАС бюджет
+    запросов ему незачем, а отнимать темп у свода КСОЮ — тем более.
+    """
+    host = host.lower()
+    if host == "sudrf.ru" or host.endswith(".sudrf.ru"):
+        return "gas"
+    if host == "vsrf.ru" or host.endswith(".vsrf.ru"):
+        return "vsrf"
+    return host
+
+
+def claim_harvest_lock(
+    settings: Settings | None = None, *, wait: bool = False, platform: str = "gas"
+) -> None:
     """Занять замок на всю машину до конца процесса.
 
     `wait=True` — дождаться очереди вместо отказа. Нужно тем, кто обязан
@@ -80,7 +98,12 @@ def claim_harvest_lock(settings: Settings | None = None, *, wait: bool = False) 
     кода, а после захвата inode сверяется с тем, что лежит на диске.
     """
     settings = settings or default_settings
+    # Замок — по платформе: правило «на суды ходит один процесс» про
+    # антибрутфорс конкретной системы. Обход ВС РФ и свод КСОЮ могут
+    # идти одновременно, два обхода ГАС — нет.
     path = settings.lock_path
+    if platform != "gas":
+        path = path.with_name(f"{path.stem}-{platform}{path.suffix}")
     path.parent.mkdir(parents=True, exist_ok=True)
 
     while True:
@@ -294,20 +317,22 @@ class CourtClient:
         if remaining > 0:
             time.sleep(remaining)
         self._last_request[host] = time.monotonic()
-        self._throttle_globally()
+        self._throttle_globally(platform_of(host))
 
-    def _throttle_globally(self) -> None:
+    def _throttle_globally(self, platform: str = "gas") -> None:
         """Пауза между любыми двумя запросами, чей бы суд ни был.
 
         Замок общий на процесс: потоки судов ждут в нём по очереди,
         и суммарный темп получается ровно настроечный.
         """
-        with _GLOBAL_GATE:
-            elapsed = time.monotonic() - _LAST_REQUEST_ANY[0]
+        # setdefault атомарен: два потока, впервые пришедшие к платформе,
+        # получат один и тот же замок, а не по своему.
+        with _GLOBAL_GATE.setdefault(platform, threading.Lock()):
+            elapsed = time.monotonic() - _LAST_REQUEST_ANY.get(platform, 0.0)
             remaining = self.settings.global_min_delay_seconds - elapsed
             if remaining > 0:
                 time.sleep(remaining)
-            _LAST_REQUEST_ANY[0] = time.monotonic()
+            _LAST_REQUEST_ANY[platform] = time.monotonic()
 
     def cooldown_left(self, host: str) -> float:
         """Сколько секунд ещё нельзя трогать этот суд."""
@@ -489,8 +514,9 @@ _COOLDOWNS: dict[str, float] = {}
 
 #: Момент последнего запроса к ГАС — к любому суду. Общий дроссель считает
 #: от него, и замок у него свой: он бережёт не суд, а платформу.
-_LAST_REQUEST_ANY: list[float] = [0.0]
-_GLOBAL_GATE = threading.Lock()
+#: По платформе: свой момент последнего запроса и свой замок очереди.
+_LAST_REQUEST_ANY: dict[str, float] = {}
+_GLOBAL_GATE: dict[str, threading.Lock] = {}
 _LAST_REQUEST: dict[str, float] = {}
 #: Запросы за сутки, по паре (суд, дата). Дата в ключе не для порядка:
 #: пока обход запускался на ночь, процесс умирал каждое утро и счётчик

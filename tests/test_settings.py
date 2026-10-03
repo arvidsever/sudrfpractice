@@ -97,7 +97,7 @@ def test_too_many_requests_is_a_back_off_not_a_strange_page(monkeypatch) -> None
     client = CourtClient(
         bulk=False, client=httpx.Client(transport=httpx.MockTransport(lambda _: too_many))
     )
-    monkeypatch.setattr(http_module, "_LAST_REQUEST_ANY", [0.0])
+    monkeypatch.setattr(http_module, "_LAST_REQUEST_ANY", {})
 
     try:
         with pytest.raises(CourtOnCooldown):
@@ -121,7 +121,7 @@ def test_global_throttle_holds_across_courts(monkeypatch) -> None:
 
     slept: list[float] = []
     monkeypatch.setattr(http_module.time, "sleep", slept.append)
-    monkeypatch.setattr(http_module, "_LAST_REQUEST_ANY", [0.0])
+    monkeypatch.setattr(http_module, "_LAST_REQUEST_ANY", {})
     monkeypatch.setattr(http_module, "_LAST_REQUEST", {})
 
     def ok(request: httpx.Request) -> httpx.Response:
@@ -135,6 +135,42 @@ def test_global_throttle_holds_across_courts(monkeypatch) -> None:
 
     assert slept, "второй запрос к ДРУГОМУ суду обязан выждать общую паузу"
     assert max(slept) <= client.settings.global_min_delay_seconds
+
+
+def test_supreme_court_does_not_share_the_gas_budget(monkeypatch, tmp_path) -> None:
+    """Общая пауза — у каждой платформы своя.
+
+    Антибрутфорс ГАС считает запросы ко всем судам на sudrf.ru вместе, но
+    сайт ВС РФ — другая система. Деля с ГАС один бюджет, сбор ВС отнимал бы
+    темп у свода КСОЮ, ничего не выигрывая в вежливости. И замок «один
+    процесс на платформу» — тоже свой: обход ВС не должен ждать свод.
+    """
+    import httpx
+
+    from harvester import http as http_module
+    from harvester.config import Settings
+    from harvester.http import CourtClient, claim_harvest_lock, platform_of
+
+    slept: list[float] = []
+    monkeypatch.setattr(http_module.time, "sleep", slept.append)
+    monkeypatch.setattr(http_module, "_LAST_REQUEST_ANY", {})
+    monkeypatch.setattr(http_module, "_LAST_REQUEST", {})
+
+    def ok(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, request=request, content=b"<html></html>")
+
+    client = CourtClient(bulk=False, client=httpx.Client(transport=httpx.MockTransport(ok)))
+    client.get("https://1kas.sudrf.ru/a")
+    slept.clear()
+    client.get("https://www.vsrf.ru/lk/practice/acts")
+
+    assert slept == [], "ВС не ждёт паузы, выдержанной для ГАС"
+    assert platform_of("4ap.sudrf.ru") == platform_of("1kas.sudrf.ru") == "gas"
+    assert platform_of("www.vsrf.ru") == "vsrf"
+
+    settings = Settings(lock_path=tmp_path / "замок.lock")
+    claim_harvest_lock(settings)
+    claim_harvest_lock(settings, platform="vsrf")  # не должно бросить: замок другой
 
 
 def test_daily_cap_rolls_over_at_midnight(monkeypatch) -> None:
@@ -157,7 +193,7 @@ def test_daily_cap_rolls_over_at_midnight(monkeypatch) -> None:
         return httpx.Response(200, request=request, content=b"<html></html>")
 
     monkeypatch.setattr(http_module.time, "sleep", lambda _: None)
-    monkeypatch.setattr(http_module, "_LAST_REQUEST_ANY", [0.0])
+    monkeypatch.setattr(http_module, "_LAST_REQUEST_ANY", {})
     monkeypatch.setattr(http_module, "_LAST_REQUEST", {})
     monkeypatch.setattr(http_module, "_REQUESTS_TODAY", {})
     monkeypatch.setattr(http_module, "_today", lambda: date(2026, 8, 20))

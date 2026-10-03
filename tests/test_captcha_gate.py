@@ -135,3 +135,27 @@ def test_silent_form_is_treated_as_a_gate(monkeypatch) -> None:
 
     form = "<html><body><div class='col col_content'>СУДЕБНОЕ ДЕЛОПРОИЗВОДСТВО</div></body></html>"
     assert classify(form).verdict is Verdict.UNKNOWN, "фикстура должна быть неопознанной"
+
+
+def test_captcha_is_the_image_next_to_its_field_not_the_first_on_the_page() -> None:
+    """03.10.2026 Апелляционный военный суд встроил в страницу рекламные
+    баннеры картинками, до и после формы. Решатель брал первую картинку
+    на странице и пытался прочитать баннер мессенджера: «не PNG»."""
+    from harvester.captcha.gate import extract_challenge
+
+    banner = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ=="
+    captcha = "data: image/png;base64, iVBORw0KGgoAAAANSUhEUgAAAGQ="
+    html = f"""
+        <div><img src="{banner}"></div>
+        <table><tr><td>
+            <img src="{captcha}" style="border: 1px solid #4a739d;">
+            <input name="captchaid" type="hidden" value="u6evv74uroigip8jsa6v8cue75">
+        </td></tr></table>
+        <div><img src="{banner}"></div>
+    """
+
+    challenge = extract_challenge(html)
+
+    assert challenge is not None
+    assert challenge.png.startswith(b"\x89PNG"), "взят баннер, а не капча"
+    assert challenge.captchaid == "u6evv74uroigip8jsa6v8cue75"

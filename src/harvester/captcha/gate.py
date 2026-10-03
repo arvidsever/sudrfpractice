@@ -57,13 +57,22 @@ def extract_challenge(html: str) -> CaptchaChallenge | None:
     if not captchaid:
         return None
 
-    for img in tree.css("img"):
-        src = img.attributes.get("src") or ""
-        if _DATA_URI.match(src):
-            try:
-                return CaptchaChallenge(png=png_from_data_uri(src), captchaid=captchaid)
-            except Exception:  # noqa: BLE001 — битая картинка это «капчи нет»
-                return None
+    # Картинку ищем рядом с полем, а не первую на странице. 03.10.2026
+    # у Апелляционного военного суда перед капчей стояли два рекламных
+    # баннера, тоже встроенных картинками, и решатель пытался прочитать
+    # баннер мессенджера («не PNG»). Капча и её `captchaid` лежат в одной
+    # ячейке — на всех проверенных судах; выше по дереву поднимаемся
+    # не дальше пары уровней, чтобы не дойти снова до баннеров.
+    container, depth = field.parent, 0
+    while container is not None and depth < 3:
+        for img in container.css("img"):
+            src = img.attributes.get("src") or ""
+            if _DATA_URI.match(src):
+                try:
+                    return CaptchaChallenge(png=png_from_data_uri(src), captchaid=captchaid)
+                except Exception:  # noqa: BLE001 — битая картинка это «капчи нет»
+                    return None
+        container, depth = container.parent, depth + 1
     return None
 
 

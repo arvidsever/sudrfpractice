@@ -12,11 +12,10 @@ def test_nine_cassation_courts_plus_military() -> None:
     assert domains == {f"{n}kas.sudrf.ru" for n in range(1, 10)} | {"vkas.sudrf.ru"}
 
 
-def test_five_appeal_courts_without_military_yet() -> None:
-    """Апелляционный военный пока вне справочника: капча у него в JPEG,
-    а решатель читает только PNG (разведка 03.10.2026)."""
+def test_five_appeal_courts_plus_military() -> None:
     domains = {item.domain for item in courts() if item.level == "appeal"}
-    assert domains == {f"{n}ap.sudrf.ru" for n in range(1, 6)}
+    assert domains == {f"{n}ap.sudrf.ru" for n in range(1, 6)} | {"vap.sudrf.ru"}
+    assert court("vap.sudrf.ru").number is None
 
 
 def test_military_court_has_no_number_and_no_regions() -> None:
@@ -35,6 +34,7 @@ def test_captcha_courts_match_the_live_survey() -> None:
         "4kas.sudrf.ru",
         "6kas.sudrf.ru",
         "2ap.sudrf.ru",
+        "vap.sudrf.ru",
     } == CAPTCHA_COURTS
     assert court("2kas.sudrf.ru").has_captcha is False
     assert court("3kas.sudrf.ru").has_captcha is True

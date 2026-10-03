@@ -316,7 +316,11 @@ def _save_raw(engine: Engine, store: RawStore, response, kind: str) -> int:
 
 
 def _store_acts(engine: Engine, case_type: str, rows: list[ActRow]) -> None:
-    rows = [row for row in rows if not row.economic]
+    # Акт — один на PDF, даже если в выдаче он у двух производств: одна
+    # вставка не может обновить одну строку дважды. ponytail: у такого акта
+    # остаётся связь с одним производством из двух; отдельная таблица
+    # связей — если объединённых дел окажется много.
+    rows = list({row.pdf_id: row for row in rows if not row.economic}.values())
     if not rows:
         return
     values = [
@@ -390,8 +394,16 @@ def _store_claims(engine: Engine, case_type: str, rows: list[ClaimRow]) -> None:
 
 
 SOURCES = {
-    # Ключ различает пространства PDF: у экономической коллегии номера свои.
-    "acts": (acts_url, parse_acts, _store_acts, lambda r: (r.economic, r.pdf_id)),
+    # Строка выдачи — это пара «акт + производство»: один PDF бывает у двух
+    # производств (объединённые дела: «ГКПИ04-1526», январь 2005), и по одному
+    # номеру PDF строки склеивались — счёт не сходился никогда, а окно
+    # делилось до дней. У экономической коллегии номера PDF свои.
+    "acts": (
+        acts_url,
+        parse_acts,
+        _store_acts,
+        lambda r: (r.economic, r.pdf_id, r.claim_id),
+    ),
     "claims": (claims_url, parse_claims, _store_claims, lambda r: r.claim_id),
 }
 

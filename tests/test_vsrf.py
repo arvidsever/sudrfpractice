@@ -289,3 +289,46 @@ def test_unstable_paging_is_cured_by_a_narrower_window(db_settings, tmp_path) ->
     engine.dispose()
     assert kept == 2, "обе строки собраны — по половинам месяца"
     assert civil == 2, "окно закрыто"
+
+
+def test_one_act_shared_by_two_productions_closes_the_window(db_settings, tmp_path) -> None:
+    """Один PDF у двух производств (объединённые дела, январь 2005):
+    строки выдачи разные, акт — один. По номеру PDF они склеивались,
+    счёт не сходился со счётчиком никогда, и окно делилось до дней."""
+    import json
+
+    from sqlalchemy import create_engine, func, select
+
+    from harvester.db.schema import vsrf_act, vsrf_window
+    from harvester.raw import RawStore
+    from harvester.vsrf import sweep_listing
+
+    first = _page("vsrf_acts.html").content.split('<div class="CaseStyle_case_item__')[1]
+    twin = first.replace("/lk/practice/claims/19-37056469", "/lk/practice/claims/19-99999999")
+    content = (
+        '<div class="CaseStyle_case_item__' + first + '<div class="CaseStyle_case_item__' + twin
+    )
+    data = {
+        "props": {
+            "pageProps": {
+                "initialItemsData": {"content": content, "totalElements": 2, "last": True}
+            }
+        }
+    }
+    page = f'<script id="__NEXT_DATA__">{json.dumps(data, ensure_ascii=False)}</script>'
+
+    engine = create_engine(db_settings.database_url)
+    sweep_listing(
+        "acts",
+        _Client(page),
+        engine,
+        RawStore(tmp_path),
+        start=date(2026, 9, 1),
+        today=date(2026, 9, 30),
+    )
+    with engine.connect() as connection:
+        kept = connection.execute(select(func.count()).select_from(vsrf_act)).scalar_one()
+        closed = connection.execute(select(func.count()).select_from(vsrf_window)).scalar_one()
+    engine.dispose()
+    assert kept == 1, "акт один"
+    assert closed == 5, "но строк две, и окно сошлось со счётчиком"

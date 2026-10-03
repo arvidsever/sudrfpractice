@@ -170,3 +170,52 @@ def test_economic_collegium_is_counted_but_not_kept(db_settings, tmp_path) -> No
 
     assert kept == 2, "экономическая строка в базу не попадает"
     assert closed == 5, "но в сверку входит: три строки на счётчик три — окно закрыто"
+
+
+def test_supreme_court_pages_are_utf8_and_gas_pages_cp1251() -> None:
+    """Заголовком кодировку не объявляет ни ГАС, ни ВС. Прочитанная как cp1251,
+    выдача ВС превратила номера в «РђРџР›26-18Р”», и у всех «дел» пропали УИД
+    и даты — подписи полей не находились."""
+    from harvester.http import Response
+
+    word = "Инстанция:"
+    vsrf = Response(
+        url="https://www.vsrf.ru/lk/practice/claims", status_code=200, content=word.encode("utf-8")
+    )
+    gas = Response(
+        url="https://5kas.sudrf.ru/modules.php", status_code=200, content=word.encode("cp1251")
+    )
+    assert vsrf.text == word
+    assert gas.text == word
+
+
+def test_long_claim_id_does_not_break_the_sweep(db_settings) -> None:
+    """У дисциплинарных дел идентификатор карточки в 38 знаков; колонка
+    на 32 уронила сбор «дел» на первой же странице."""
+    from sqlalchemy import create_engine, select
+
+    from harvester.db.schema import vsrf_claim
+    from harvester.vsrf import ClaimRow, _store_claims
+
+    long_id = "1-10-3F834369BAAB45BFB3E06A8E1E034938"
+    engine = create_engine(db_settings.database_url)
+    _store_claims(
+        engine,
+        "DISCIPLINARY_DISPUTE",
+        [
+            ClaimRow(
+                claim_id=long_id,
+                number="ДК26-152",
+                received_date=None,
+                instance=None,
+                case_uid=None,
+                first_court=None,
+                first_case_number=None,
+                subject=None,
+            )
+        ],
+    )
+    with engine.connect() as connection:
+        stored = connection.execute(select(vsrf_claim.c.claim_id)).scalar_one()
+    engine.dispose()
+    assert stored == long_id

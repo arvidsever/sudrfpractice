@@ -256,7 +256,7 @@ vsrf_act = Table(
     #: Номер PDF в `/lk/practice/stor_pdf/{id}` — у акта он единственный.
     Column("pdf_id", BigInteger, primary_key=True, autoincrement=False),
     Column("number", Text, nullable=True, comment="номер производства ВС, напр. АПЛ26-207"),
-    Column("claim_id", String(32), nullable=True, comment="карточка: /lk/practice/claims/{id}"),
+    Column("claim_id", Text, nullable=True, comment="карточка: /lk/practice/claims/{id}"),
     Column("act_kind", Text, nullable=True, comment="Определение, Постановление…"),
     Column("act_date", Date, nullable=True),
     Column("case_type", String(32), nullable=False, comment="CIVIL, CRIMINAL… — фильтр выдачи"),
@@ -289,7 +289,7 @@ vsrf_act_text = Table(
 vsrf_claim = Table(
     "vsrf_claim",
     metadata,
-    Column("claim_id", String(32), primary_key=True),
+    Column("claim_id", Text, primary_key=True),
     Column("number", Text, nullable=True),
     Column("received_date", Date, nullable=True),
     Column("case_type", String(32), nullable=False),

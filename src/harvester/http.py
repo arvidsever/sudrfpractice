@@ -244,6 +244,12 @@ class Response:
 
     @property
     def text(self) -> str:
+        # ГАС отдаёт cp1251, ВС РФ — UTF-8, и заголовком ни тот ни другой
+        # кодировку не объявляет. Решаем по платформе: 03.10.2026 выдача ВС,
+        # прочитанная как cp1251, превратила номера в «РђРџР›26-18Р”», и ни одна
+        # подпись поля не нашлась — у всех «дел» пропали УИД и даты.
+        if platform_of(httpx.URL(self.url).host) == "vsrf":
+            return self.content.decode("utf-8", errors="replace")
         return decode(self.content)
 
 

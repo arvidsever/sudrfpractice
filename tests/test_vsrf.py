@@ -116,3 +116,57 @@ def test_window_is_closed_only_when_it_matches_the_counter(db_settings, tmp_path
         closed = connection.execute(select(func.count()).select_from(vsrf_window)).scalar_one()
     assert closed == 5, "все пять видов судопроизводства за сентябрь сошлись со счётчиком"
     engine.dispose()
+
+
+ECONOMIC_ROW = """
+<div class="CaseStyle_case_item__x"><a href="http://kad.arbitr.ru/Kad/Card?number=А40-1%2F2025">
+305-ЭС26-1</a><a href="/lk/practice/stor_pdf_ec/2570944">Определение</a><span>10.09.2026</span>
+<span>Вид судопроизводства:</span><span>Административное судопроизводство</span>
+<span>Судебная коллегия:</span><span>Судебная коллегия по экономическим спорам</span></div>
+"""
+
+
+def test_economic_collegium_is_counted_but_not_kept(db_settings, tmp_path) -> None:
+    """Владелец решил экономическую коллегию не брать, а «административная»
+    выдача сайта наполовину из неё: дела по главе 24 АПК. Её строки обязаны
+    войти в сверку со счётчиком — иначе окно не закроется никогда, — но в базу
+    не попадают. 03.10.2026 выдача за сентябрь открылась страницей, где все
+    двадцать строк экономические, и сбор остановился на ней, не дойдя до наших."""
+    import json
+
+    from sqlalchemy import create_engine, func, select
+
+    from harvester.db.schema import vsrf_act, vsrf_window
+    from harvester.raw import RawStore
+    from harvester.vsrf import sweep_listing
+
+    ours = _page("vsrf_acts.html").content
+    data = {
+        "props": {
+            "pageProps": {
+                "initialItemsData": {
+                    "content": ECONOMIC_ROW + ours,
+                    "totalElements": 3,
+                    "last": True,
+                }
+            }
+        }
+    }
+    page = f'<script id="__NEXT_DATA__">{json.dumps(data, ensure_ascii=False)}</script>'
+
+    engine = create_engine(db_settings.database_url)
+    sweep_listing(
+        "acts",
+        _Client(page),
+        engine,
+        RawStore(tmp_path),
+        start=date(2026, 9, 1),
+        today=date(2026, 9, 30),
+    )
+    with engine.connect() as connection:
+        kept = connection.execute(select(func.count()).select_from(vsrf_act)).scalar_one()
+        closed = connection.execute(select(func.count()).select_from(vsrf_window)).scalar_one()
+    engine.dispose()
+
+    assert kept == 2, "экономическая строка в базу не попадает"
+    assert closed == 5, "но в сверку входит: три строки на счётчик три — окно закрыто"

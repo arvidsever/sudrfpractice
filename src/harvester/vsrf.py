@@ -154,6 +154,12 @@ def _link(node: Node, prefix: str) -> tuple[str, str] | None:
 @dataclass(frozen=True, slots=True)
 class ActRow:
     pdf_id: int
+    #: Экономическая коллегия: PDF в `/stor_pdf_ec/`, вместо карточки ВС —
+    #: ссылка в картотеку арбитражных судов. Владелец решил её не брать
+    #: (03.10.2026), но выдача «административных» дел наполовину из неё
+    #: и состоит — дела по главе 24 АПК. Такие строки считаются при сверке
+    #: со счётчиком сайта и не сохраняются.
+    economic: bool
     number: str | None
     claim_id: str | None
     act_kind: str | None
@@ -168,15 +174,20 @@ def parse_acts(content: str) -> list[ActRow]:
     rows = []
     for item in _items(content):
         pdf = _link(item, "/lk/practice/stor_pdf/")
+        economic = pdf is None
+        if economic:
+            pdf = _link(item, "/lk/practice/stor_pdf_ec/")
         if pdf is None:
             # Акт без файла: искать нечего. Не ошибка — но и не строка корпуса.
             continue
         claim = _link(item, "/lk/practice/claims/")
         segments = _segments(item)
         fields = _fields(segments)
+        economic = economic or "экономическим спорам" in (fields.get("Судебная коллегия") or "")
         rows.append(
             ActRow(
                 pdf_id=int(pdf[0]),
+                economic=economic,
                 number=claim[1] if claim else None,
                 claim_id=claim[0] if claim else None,
                 act_kind=pdf[1] or None,
@@ -293,6 +304,7 @@ def _save_raw(engine: Engine, store: RawStore, response, kind: str) -> int:
 
 
 def _store_acts(engine: Engine, case_type: str, rows: list[ActRow]) -> None:
+    rows = [row for row in rows if not row.economic]
     if not rows:
         return
     values = [
@@ -365,7 +377,8 @@ def _store_claims(engine: Engine, case_type: str, rows: list[ClaimRow]) -> None:
 
 
 SOURCES = {
-    "acts": (acts_url, parse_acts, _store_acts, lambda r: r.pdf_id),
+    # Ключ различает пространства PDF: у экономической коллегии номера свои.
+    "acts": (acts_url, parse_acts, _store_acts, lambda r: (r.economic, r.pdf_id)),
     "claims": (claims_url, parse_claims, _store_claims, lambda r: r.claim_id),
 }
 
@@ -413,12 +426,17 @@ def sweep_listing(
                 total = listing.total
                 parsed = parse(listing.content)
                 rows.update({key(row): row for row in parsed})
-                if listing.last or not parsed:
+                # Кончилась выдача — по признаку сайта или по пустой странице.
+                # Не по «нет наших строк»: страница экономической коллегии
+                # своих строк не даёт, а за ней могут идти наши.
+                if listing.last or not _items(listing.content):
                     break
                 page += 1
 
             save(engine, case_type, list(rows.values()))
-            collected_total += len(rows)
+            collected_total += sum(
+                1 for row in rows.values() if not getattr(row, "economic", False)
+            )
             if total is not None and len(rows) == total:
                 statement = insert(vsrf_window).values(
                     source=source,

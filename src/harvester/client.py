@@ -13,8 +13,7 @@ from .captcha.gate import CaptchaSolver
 from .captcha.model import DEFAULT_PATH, load_model
 from .config import Settings
 from .config import settings as default_settings
-from .directories import Cartoteka, Court
-from .directories import cartoteka as find_cartoteka
+from .directories import Cartoteka, Court, cartoteki_for
 from .http import CourtClient
 from .urls import search_form_url
 
@@ -57,8 +56,9 @@ def open_client(
         )
         return CourtClient(settings, bulk=bulk)
 
-    # Форма годится любая: пара действует на суд, а не на картотеку.
-    form_cartoteka = cartoteka or find_cartoteka("g3")
+    # Форма годится любая своего уровня: пара действует на суд, а не на
+    # картотеку. Кассационная форма у апелляционного суда капчу не отдаст.
+    form_cartoteka = cartoteka or cartoteki_for(court)[0]
     return CourtClient(
         settings,
         bulk=bulk,

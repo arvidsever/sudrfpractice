@@ -1,0 +1,46 @@
+{
+  "source": "SudrfKit/CourtDirectory.swift, SudrfKit/Cartoteka.swift (appealSOYu) — Sudrf 93078de, перенесено вручную 03.10.2026: утилиты выгрузки в Sudrf больше нет",
+  "level": "appeal",
+  "cartoteki": [
+    {
+      "id": "u2",
+      "title": "Уголовное, апелляция (АСОЮ)",
+      "prefixes": [
+        "55",
+        "55к"
+      ],
+      "delo_id": "4",
+      "new": "4",
+      "delo_table": "u2_case",
+      "case_number_field": "u2_case__CASE_NUMBERSS",
+      "uid_field": "u2_case__JUDICIAL_UIDSS",
+      "name_field": "U2_DEFENDANT__NAMESS"
+    },
+    {
+      "id": "g2",
+      "title": "Гражданское, апелляция (АСОЮ)",
+      "prefixes": [
+        "66"
+      ],
+      "delo_id": "5",
+      "new": "5",
+      "delo_table": "g2_case",
+      "case_number_field": "g2_case__CASE_NUMBERSS",
+      "uid_field": "g2_case__JUDICIAL_UIDSS",
+      "name_field": "G2_PARTS__NAMESS"
+    },
+    {
+      "id": "p2",
+      "title": "КАС, апелляция (АСОЮ)",
+      "prefixes": [
+        "66а"
+      ],
+      "delo_id": "42",
+      "new": "0",
+      "delo_table": "p2_case",
+      "case_number_field": "p2_case__CASE_NUMBERSS",
+      "uid_field": "p2_case__JUDICIAL_UIDSS",
+      "name_field": "P2_PARTS__NAMESS"
+    }
+  ]
+}

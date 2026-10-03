@@ -23,7 +23,7 @@ from .config import Settings
 from .config import settings as default_settings
 from .db import store
 from .db.schema import cartoteka_volume
-from .directories import Cartoteka, Court, cartoteki, courts
+from .directories import Cartoteka, Court, cartoteki_for, courts
 from .guards import Verdict, classify
 from .http import CourtClient
 from .raw import RawRecord, RawStore
@@ -275,7 +275,7 @@ def measure_all(
         (court, cartoteka)
         for court in courts()
         if only_courts is None or court.domain in only_courts
-        for cartoteka in cartoteki()
+        for cartoteka in cartoteki_for(court)
         if only_cartoteki is None or cartoteka.id in only_cartoteki
     ]
 

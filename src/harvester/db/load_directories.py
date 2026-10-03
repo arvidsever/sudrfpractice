@@ -26,7 +26,7 @@ def load(database_url: str | None = None) -> tuple[int, int]:
                 "domain": item.domain,
                 "number": item.number,
                 "title": item.title,
-                "level": "cassation",
+                "level": item.level,
                 "regions": json.dumps(list(item.regions), ensure_ascii=False),
                 "has_captcha": item.has_captcha,
             }

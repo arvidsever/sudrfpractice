@@ -19,7 +19,7 @@ from datetime import date, timedelta
 
 from .config import Settings
 from .config import settings as default_settings
-from .directories import cartoteki, courts
+from .directories import cartoteki_for, courts
 from .harvest import harvest_listing
 from .http import CourtOnCooldown
 from .urls import DateAxis
@@ -60,7 +60,7 @@ def catchup(
     for court in courts():
         if only_courts is not None and court.domain not in only_courts:
             continue
-        for cartoteka in cartoteki():
+        for cartoteka in cartoteki_for(court):
             try:
                 run = harvest_listing(
                     court,

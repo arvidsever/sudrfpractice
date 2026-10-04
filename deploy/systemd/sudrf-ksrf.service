@@ -1,0 +1,16 @@
+[Unit]
+Description=КС РФ: решения Конституционного Суда
+Documentation=file:///srv/sudrfpractice/docs/ksrf.md
+
+[Service]
+Type=oneshot
+User=sudrf
+WorkingDirectory=/srv/sudrfpractice
+# Сайт КС не пускает адреса сервера; ходим через обратный туннель с мака
+# владельца (ksrf.ru → 127.0.0.1 в /etc/hosts). Нет туннеля — выход 75,
+# «не сейчас»: дособор нового идёт, когда мак включён.
+ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester ksrf
+TimeoutStartSec=7h
+SuccessExitStatus=75
+ExecStopPost=-/srv/sudrfpractice/.venv/bin/python -m harvester alert %n
+StateDirectory=sudrf

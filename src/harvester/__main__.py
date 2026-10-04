@@ -111,6 +111,10 @@ def main(argv: list[str] | None = None) -> int:
     supreme.add_argument("--from", dest="start", help="дд.мм.гггг, по умолчанию 01.01.2005")
     supreme.add_argument("--max-hours", type=float, default=6.0)
 
+    constitutional = sub.add_parser("ksrf", help="КС РФ: список решений, затем тексты PDF")
+    constitutional.add_argument("--only", choices=["list", "texts"], help="один этап")
+    constitutional.add_argument("--max-hours", type=float, default=6.0)
+
     warn = sub.add_parser("alert", help="учесть исход задания и написать, если упало дважды")
     warn.add_argument("unit", nargs="?", help="имя задания systemd; исход — из SERVICE_RESULT")
     warn.add_argument("--test", action="store_true", help="отправить пробное письмо")
@@ -326,6 +330,29 @@ def main(argv: list[str] | None = None) -> int:
             max_hours=args.max_hours,
         )
         print(f"актов {result['acts']}, «дел» {result['claims']}, текстов {result['texts']}")
+        return 0
+
+    if args.command == "ksrf":
+        import logging
+
+        from .http import AlreadyHarvesting, claim_harvest_lock
+        from .ksrf import Unreachable, sweep
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        try:
+            claim_harvest_lock(platform="ksrf")
+        except AlreadyHarvesting as exc:
+            print(exc)
+            return 75
+        try:
+            result = sweep(only=args.only, max_hours=args.max_hours)
+        except Unreachable as exc:
+            # Сайт КС пускает только через туннель с мака владельца. Нет туннеля —
+            # «не сейчас», а не поломка: тревога о нём будить не должна.
+            print(f"КС недоступен (туннель с мака не поднят?): {exc}")
+            return 75
+        print(f"новых решений {result['list']}, текстов {result['texts']}")
         return 0
 
     if args.command == "alert":

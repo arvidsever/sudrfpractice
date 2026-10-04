@@ -1,0 +1,10 @@
+[Unit]
+Description=Поднимать сбор КС РФ каждый час
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=1h
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

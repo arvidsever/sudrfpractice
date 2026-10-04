@@ -312,3 +312,34 @@ vsrf_window = Table(
     Column("total", Integer, nullable=False),
     Column("done_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
+
+
+# --- КС РФ (docs/ksrf.md) ---------------------------------------------------
+
+ksrf_decision = Table(
+    "ksrf_decision",
+    metadata,
+    #: Номер в `/doc/KSRFDecision{id}.pdf` — у решения он единственный.
+    Column("pdf_id", BigInteger, primary_key=True, autoincrement=False),
+    Column("number", Text, nullable=True, comment="напр. 57-П/2026, 2435-О/2026"),
+    Column("kind", Text, nullable=True, comment="буква из номера: П, О, Р, З, ПР…"),
+    Column("decision_date", Date, nullable=True),
+    Column("title", Text, nullable=True),
+    Column("first_seen", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("text_fetched_at", DateTime(timezone=True), nullable=True),
+)
+
+ksrf_decision_text = Table(
+    "ksrf_decision_text",
+    metadata,
+    Column(
+        "pdf_id",
+        BigInteger,
+        ForeignKey("ksrf_decision.pdf_id", ondelete="CASCADE"),
+        primary_key=True,
+        autoincrement=False,
+    ),
+    Column("raw_page_id", BigInteger, ForeignKey("raw_page.id"), nullable=True),
+    Column("plain_text", Text, nullable=False),
+    # tsv — generated-колонка в миграции, как у act_text.
+)

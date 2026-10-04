@@ -1,5 +1,5 @@
 [Unit]
-Description=ВС РФ: тексты актов и производства-«дела»
+Description=ВС РФ: выдачи актов и производств-«дел»
 Documentation=file:///srv/sudrfpractice/docs/vsrf.md
 
 [Service]
@@ -8,7 +8,8 @@ User=sudrf
 WorkingDirectory=/srv/sudrfpractice
 # Свой замок и своя общая пауза — платформа ВС, а не ГАС: идёт параллельно
 # со сводом КСОЮ, ничего у него не отнимая. Экономическая коллегия не берётся.
-ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester vsrf
+# Тексты — отдельным заданием sudrf-vsrf-texts, вторым потоком.
+ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester vsrf --only listings
 TimeoutStartSec=7h
 SuccessExitStatus=75
 ExecStopPost=-/srv/sudrfpractice/.venv/bin/python -m harvester alert %n

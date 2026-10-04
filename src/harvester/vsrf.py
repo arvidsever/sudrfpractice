@@ -613,7 +613,7 @@ def sweep(
     with CourtClient(settings, bulk=True) as client:
         try:
             for source in ("acts", "claims"):
-                if only in (None, source):
+                if only in (None, "listings", source):
                     result[source] = sweep_listing(
                         source, client, engine, store, start=start, until=until
                     )

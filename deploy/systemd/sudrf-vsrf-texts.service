@@ -1,0 +1,16 @@
+[Unit]
+Description=ВС РФ: тексты актов из PDF
+Documentation=file:///srv/sudrfpractice/docs/vsrf.md
+
+[Service]
+Type=oneshot
+User=sudrf
+WorkingDirectory=/srv/sudrfpractice
+# Второй поток к сайту ВС, рядом с выдачами (sudrf-vsrf): свой замок,
+# своя пауза 3 с и свой дневной потолок. Вместе — вдвое больший темп;
+# решение владельца от 04.10.2026. Придержит — выключить этот таймер.
+ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester vsrf --only texts
+TimeoutStartSec=7h
+SuccessExitStatus=75
+ExecStopPost=-/srv/sudrfpractice/.venv/bin/python -m harvester alert %n
+StateDirectory=sudrf

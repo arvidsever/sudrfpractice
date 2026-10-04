@@ -107,7 +107,11 @@ def main(argv: list[str] | None = None) -> int:
     find.add_argument("--offset", type=int, default=0)
 
     supreme = sub.add_parser("vsrf", help="ВС РФ: выдача актов и «дел», затем тексты PDF")
-    supreme.add_argument("--only", choices=["acts", "claims", "texts"], help="один этап")
+    supreme.add_argument(
+        "--only",
+        choices=["acts", "claims", "listings", "texts"],
+        help="один этап; listings — обе выдачи без текстов",
+    )
     supreme.add_argument("--from", dest="start", help="дд.мм.гггг, по умолчанию 01.01.2005")
     supreme.add_argument("--max-hours", type=float, default=6.0)
 
@@ -320,7 +324,12 @@ def main(argv: list[str] | None = None) -> int:
         logging.getLogger("httpx").setLevel(logging.WARNING)
         try:
             # Свой замок платформы: ВС не делит бюджет с ГАС и не ждёт свод КСОЮ.
-            claim_harvest_lock(platform="vsrf")
+            # Тексты — под отдельным замком и идут вторым потоком рядом
+            # с выдачами: у каждого процесса своя пауза и свой дневной
+            # потолок, так что сайт ВС видит вдвое больший темп. Решение
+            # владельца от 04.10.2026 (docs/vsrf.md); придержит — вернуть
+            # один поток, убрав `sudrf-vsrf-texts.timer`.
+            claim_harvest_lock(platform="vsrf-texts" if args.only == "texts" else "vsrf")
         except AlreadyHarvesting as exc:
             print(exc)
             return 75

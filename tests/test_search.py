@@ -224,3 +224,58 @@ def test_texts_share_is_reported_only_when_asked_about_texts(db_settings) -> Non
     assert словами.collected_share == 0.0, "лишний счёт корпуса не оплачиваем"
     assert обычный.collected_share > 0
     engine.dispose()
+
+
+def _seed_higher(engine):
+    from harvester.db.schema import ksrf_decision, ksrf_decision_text, vsrf_act, vsrf_act_text
+
+    with engine.begin() as connection:
+        connection.execute(
+            insert(vsrf_act).values(
+                pdf_id=1, number="5-КГ26-1-К2", act_date=date(2026, 3, 1), case_type="CIVIL"
+            )
+        )
+        connection.execute(
+            insert(vsrf_act_text).values(pdf_id=1, plain_text="Суд снизил неустойку по статье 333.")
+        )
+        # Акт без текста: PDF ещё не брали. В поиск не попадает, в долю — да.
+        connection.execute(insert(vsrf_act).values(pdf_id=2, number="АПЛ26-2", case_type="CIVIL"))
+        connection.execute(
+            insert(ksrf_decision).values(
+                pdf_id=7, number="57-П/2026", kind="П", decision_date=date(2026, 2, 1)
+            )
+        )
+        connection.execute(
+            insert(ksrf_decision_text).values(pdf_id=7, plain_text="О соразмерности неустойки.")
+        )
+
+
+def test_higher_courts_answer_the_same_text_query(db_settings) -> None:
+    from harvester.search import run_higher, wants_higher
+
+    engine = _seed(db_settings)
+    _seed_higher(engine)
+
+    query = Query(text="неустойка")
+    assert wants_higher(query) == ("www.vsrf.ru", "www.ksrf.ru")
+    supreme = run_higher(engine, query, "www.vsrf.ru")
+    assert [r["number"] for r in supreme.rows] == ["5-КГ26-1-К2"]
+    assert supreme.rows[0]["url"].endswith("/stor_pdf/1")
+    assert "«неустойку»" in supreme.rows[0]["snippet"]
+    assert supreme.texts_share == 0.5
+    assert run_higher(engine, query, "www.ksrf.ru").total == 1
+    assert run_higher(engine, Query(text="алименты"), "www.vsrf.ru").total == 0
+
+
+def test_higher_courts_stay_out_of_queries_about_facets_they_lack(db_settings) -> None:
+    from harvester.search import higher_texts, wants_higher
+
+    engine = _seed(db_settings)
+    _seed_higher(engine)
+
+    assert wants_higher(Query(text="неустойка", cartoteki=("g3",))) == ()
+    assert wants_higher(Query(courts=("5kas.sudrf.ru",), text="неустойка")) == ()
+    assert wants_higher(Query(courts=("www.ksrf.ru",), text="неустойка")) == ("www.ksrf.ru",)
+    assert wants_higher(Query()) == ()
+    assert [r["court_domain"] for r in higher_texts(engine, "57-П", 5)] == ["www.ksrf.ru"]
+    assert higher_texts(engine, "АПЛ26-2", 5) == []

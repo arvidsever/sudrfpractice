@@ -405,7 +405,13 @@ def main(argv: list[str] | None = None) -> int:
                 .limit(args.limit)
             ).all()
 
-        if not rows:
+        from .search import higher_texts
+
+        # ВС и КС — добором до `--limit`: номера у них свои («5-КГ24-12-К2»,
+        # «57-П/2026») и с кассационными не пересекаются.
+        higher = higher_texts(engine, args.number, args.limit - len(rows))
+
+        if not rows and not higher:
             # Разделяем два разных «нет»: дела не нашлось или текст не разобран.
             # Второе — законное состояние, а не сбой, и молчать о нём нельзя.
             print(
@@ -421,6 +427,13 @@ def main(argv: list[str] | None = None) -> int:
             print()
             print(row.plain_text)
             print()
+        for row in higher:
+            print(f"{row['number']}  {row['court_domain']}  {row['decision_date'] or '—'}")
+            print(f"{row['kind'] or '—'} · {' '.join((row['about'] or '—').split())[:200]}")
+            print(row["url"])
+            print()
+            print(row["plain_text"])
+            print()
         return 0
 
     if args.command == "search":
@@ -429,30 +442,50 @@ def main(argv: list[str] | None = None) -> int:
         from sqlalchemy import create_engine
 
         from .config import settings
-        from .search import Query, run
+        from .search import HIGHER, Query, run, run_higher, wants_higher
 
         def as_date(value):
             return datetime.strptime(value, "%d.%m.%Y").date() if value else None
 
         engine = create_engine(settings.database_url)
-        found = run(
-            engine,
-            Query(
-                courts=tuple(args.court or ()),
-                cartoteki=tuple(args.cartoteka or ()),
-                judges=tuple(args.judge or ()),
-                results=tuple(args.result or ()),
-                lower_courts=tuple(args.lower_court or ()),
-                number=args.number,
-                text=args.text,
-                decided_from=as_date(args.decided_from),
-                decided_to=as_date(args.decided_to),
-                with_act=True if args.with_act else None,
-                limit=args.limit,
-                offset=args.offset,
-            ),
-            with_facets=args.facets,
+        query = Query(
+            courts=tuple(args.court or ()),
+            cartoteki=tuple(args.cartoteka or ()),
+            judges=tuple(args.judge or ()),
+            results=tuple(args.result or ()),
+            lower_courts=tuple(args.lower_court or ()),
+            number=args.number,
+            text=args.text,
+            decided_from=as_date(args.decided_from),
+            decided_to=as_date(args.decided_to),
+            with_act=True if args.with_act else None,
+            limit=args.limit,
+            offset=args.offset,
         )
+        # Спросили только про ВС или КС — основной корпус не трогаем:
+        # «найдено 0 дел» про кассацию там было бы ответом не на тот вопрос.
+        only_higher = bool(query.courts) and all(c in HIGHER for c in query.courts)
+        for domain in wants_higher(query):
+            top = run_higher(engine, query, domain)
+            print(
+                f"{HIGHER[domain].title}: найдено {top.total} актов, показано {len(top.rows)};"
+                f" тексты разобраны у {top.texts_share:.0%}"
+            )
+            for row in top.rows:
+                print(
+                    f"  {(row['number'] or '—'):28} {domain:16}"
+                    f" {str(row['decision_date'] or '—'):12} {row['kind'] or ''}"
+                )
+                if row["about"]:
+                    print(f"       {' '.join(row['about'].split())[:160]}")
+                if row.get("snippet"):
+                    print(f"       {' '.join(row['snippet'].split())}")
+                print(f"       {row['url']}")
+            print()
+        if only_higher:
+            return 0
+
+        found = run(engine, query, with_facets=args.facets)
 
         print(f"найдено {found.total} дел, показано {len(found.rows)}")
         # Раньше здесь стояло «индекс ещё наполняется». Индекс закрыт 25.08,

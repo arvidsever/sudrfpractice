@@ -23,7 +23,15 @@ from datetime import date
 
 from sqlalchemy import Engine, Select, func, literal_column, select
 
-from .db.schema import act, act_text, case
+from .db.schema import (
+    act,
+    act_text,
+    case,
+    ksrf_decision,
+    ksrf_decision_text,
+    vsrf_act,
+    vsrf_act_text,
+)
 
 #: Сколько дел отдавать за раз, если не сказано иначе.
 PAGE_SIZE = 25
@@ -226,3 +234,145 @@ def run(engine: Engine, query: Query, *, with_facets: bool = False) -> Found:
         texts_share=texts_share,
         facets=facets,
     )
+
+
+# --- Высшие суды: ВС и КС ---------------------------------------------------
+#
+# Свои таблицы, а не `case` (docs/vsrf.md, docs/ksrf.md): у акта ВС и решения
+# КС нет ни картотеки, ни результата из справочника, ни карточки на sudrf.
+# Поэтому и выдача у них своя, рядом с основной, а не вперемешку: фильтры
+# по картотеке, судье и результату к ним не относятся.
+
+
+@dataclass(frozen=True, slots=True)
+class _Higher:
+    title: str
+    head: object  # таблица реквизитов
+    body: object  # таблица текстов; обе связаны по `pdf_id`
+    decided: object  # колонка даты
+    kind: object
+    about: object
+    url: str  # шаблон ссылки на PDF
+
+
+HIGHER = {
+    "www.vsrf.ru": _Higher(
+        "Верховный Суд РФ",
+        vsrf_act,
+        vsrf_act_text,
+        vsrf_act.c.act_date,
+        vsrf_act.c.act_kind,
+        vsrf_act.c.subject,
+        "https://www.vsrf.ru/lk/practice/stor_pdf/{}",
+    ),
+    "www.ksrf.ru": _Higher(
+        "Конституционный Суд РФ",
+        ksrf_decision,
+        ksrf_decision_text,
+        ksrf_decision.c.decision_date,
+        ksrf_decision.c.kind,
+        ksrf_decision.c.title,
+        "https://www.ksrf.ru/doc/KSRFDecision{}.pdf",
+    ),
+}
+
+
+def wants_higher(query: Query) -> tuple[str, ...]:
+    """Какие высшие суды отвечают на запрос.
+
+    Только поиск по словам или номеру, и только если не названы фасеты,
+    которых у ВС и КС нет: «картотека g3» про них ничего не говорит,
+    и подмешивать их к такому запросу — значит отвечать не на него.
+    """
+    if not (query.text or query.number):
+        return ()
+    if query.cartoteki or query.judges or query.results or query.lower_courts:
+        return ()
+    if query.with_act is not None:
+        return ()
+    return tuple(d for d in HIGHER if not query.courts or d in query.courts)
+
+
+def _higher_columns(spec: _Higher) -> list:
+    return [
+        spec.head.c.pdf_id,
+        spec.head.c.number,
+        spec.decided.label("decision_date"),
+        spec.kind.label("kind"),
+        spec.about.label("about"),
+    ]
+
+
+def _higher_row(domain: str, row) -> dict:
+    return {
+        **row._mapping,
+        "court_domain": domain,
+        "url": HIGHER[domain].url.format(row.pdf_id),
+    }
+
+
+def run_higher(engine: Engine, query: Query, domain: str) -> Found:
+    """Тот же запрос по текстам ВС или КС. `texts_share` — доля актов
+    этого суда, чей PDF уже разобран."""
+    spec = HIGHER[domain]
+    head, body = spec.head, spec.body
+    tsv = literal_column(f"{body.name}.tsv")
+    joined = head.join(body, body.c.pdf_id == head.c.pdf_id)
+
+    def narrow(statement: Select) -> Select:
+        if query.text:
+            statement = statement.where(tsv.op("@@")(_tsquery(query.text)))
+        if query.number:
+            statement = statement.where(head.c.number.ilike(f"%{query.number}%"))
+        if query.decided_from is not None:
+            statement = statement.where(spec.decided >= query.decided_from)
+        if query.decided_to is not None:
+            statement = statement.where(spec.decided <= query.decided_to)
+        return statement
+
+    columns = _higher_columns(spec)
+    if query.text:
+        columns.append(
+            func.ts_headline(
+                REGCONFIG,
+                body.c.plain_text,
+                _tsquery(query.text),
+                "MaxFragments=1, MaxWords=30, MinWords=15, StartSel=«, StopSel=»",
+            ).label("snippet")
+        )
+    with engine.connect() as connection:
+        total = connection.execute(narrow(select(func.count()).select_from(joined))).scalar_one()
+        acts = connection.execute(select(func.count()).select_from(head)).scalar_one()
+        texts = connection.execute(select(func.count()).select_from(body)).scalar_one()
+        rows = [
+            _higher_row(domain, row)
+            for row in connection.execute(
+                narrow(select(*columns).select_from(joined))
+                .order_by(spec.decided.desc().nulls_last(), head.c.pdf_id.desc())
+                .limit(query.limit)
+                .offset(query.offset)
+            )
+        ]
+    return Found(
+        total=total, rows=rows, collected_share=0.0, texts_share=texts / acts if acts else 0.0
+    )
+
+
+def higher_texts(engine: Engine, number: str, limit: int) -> list[dict]:
+    """Тексты актов ВС и КС по номеру — для команды `act`. Не больше
+    `limit` на всех."""
+    found: list[dict] = []
+    with engine.connect() as connection:
+        for domain, spec in HIGHER.items():
+            head, body = spec.head, spec.body
+            found += [
+                _higher_row(domain, row)
+                for row in connection.execute(
+                    select(*_higher_columns(spec), body.c.plain_text)
+                    .select_from(head.join(body, body.c.pdf_id == head.c.pdf_id))
+                    .where(head.c.number.ilike(f"%{number}%"))
+                    .order_by(spec.decided.desc().nulls_last())
+                    .limit(max(limit - len(found), 0))
+                )
+            ]
+    return found

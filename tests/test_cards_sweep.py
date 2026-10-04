@@ -151,3 +151,22 @@ def test_every_court_gets_its_own_thread(monkeypatch) -> None:
     cards.sweep_all()
 
     assert len(seen) == 3, f"ожидались три потока, работали: {seen}"
+
+
+def test_queue_run_ends_even_if_a_court_never_answers(monkeypatch, db_settings) -> None:
+    """03.10.2026 4 АСОЮ не ответил ни разу, и прогон очереди сутки досыпал
+    его паузы, держа замок ГАС, — свод КСОЮ стоял. Срок у прогона обязан
+    быть, как у свода."""
+    from harvester import run as run_module
+
+    def asleep(domain, stop, probe=None):
+        stop.wait(30)  # суд вечно на паузе; отпустить может только срок
+        return False
+
+    monkeypatch.setattr(run_module, "wait_out_cooldown", asleep)
+    monkeypatch.setattr(run_module, "courts", lambda: [_court("4ap.sudrf.ru")])
+
+    started = time.monotonic()
+    run_module.run_queue(settings=db_settings, max_hours=0.0005)  # ~2 с
+
+    assert time.monotonic() - started < 10, "прогон обязан кончиться по сроку"

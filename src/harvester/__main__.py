@@ -156,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     runner = sub.add_parser("run", help="прогнать очередь: собрать перечни по окнам")
     runner.add_argument("--court", action="append", help="ограничить суды, можно повторять")
     runner.add_argument("--limit", type=int, metavar="N", help="не больше N окон на суд")
+    runner.add_argument("--max-hours", type=float, default=6.0, help="предел прогона, часов")
     runner.add_argument(
         "--pilot", action="store_true", help="наблюдаемый прогон: без требования ночного окна"
     )
@@ -574,6 +575,7 @@ def main(argv: list[str] | None = None) -> int:
             only_courts=args.court,
             bulk=not args.pilot,
             limit_per_court=args.limit,
+            max_hours=args.max_hours,
         )
         print(
             f"окон пройдено: {totals.windows}, дел {totals.cases}, ссылок на акты "

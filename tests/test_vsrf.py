@@ -332,3 +332,45 @@ def test_one_act_shared_by_two_productions_closes_the_window(db_settings, tmp_pa
     engine.dispose()
     assert kept == 1, "акт один"
     assert closed == 5, "но строк две, и окно сошлось со счётчиком"
+
+
+def test_empty_shell_after_the_last_page_ends_the_listing(db_settings, tmp_path) -> None:
+    """04.10.2026 страница «не последняя», а следующая — оболочка без выдачи.
+    Это конец выдачи, а не повод ронять весь прогон: сбор ВС из-за одного
+    окна стоял, и тексты не брались вовсе."""
+    import json
+
+    from sqlalchemy import create_engine, func, select
+
+    from harvester.db.schema import vsrf_act, vsrf_window
+    from harvester.raw import RawStore
+    from harvester.vsrf import sweep_listing
+
+    ours = _page("vsrf_acts.html").content
+    data = {
+        "props": {
+            "pageProps": {"initialItemsData": {"content": ours, "totalElements": 2, "last": False}}
+        }
+    }
+    first = f'<script id="__NEXT_DATA__">{json.dumps(data, ensure_ascii=False)}</script>'
+    shell = '<script id="__NEXT_DATA__">{"props": {"pageProps": {}}}</script>'
+
+    class Client:
+        def get(self, url: str):
+            return _Response(shell if "page=1" in url else first, url)
+
+    engine = create_engine(db_settings.database_url)
+    sweep_listing(
+        "acts",
+        Client(),
+        engine,
+        RawStore(tmp_path),
+        start=date(2026, 9, 1),
+        today=date(2026, 9, 30),
+    )
+    with engine.connect() as connection:
+        kept = connection.execute(select(func.count()).select_from(vsrf_act)).scalar_one()
+        closed = connection.execute(select(func.count()).select_from(vsrf_window)).scalar_one()
+    engine.dispose()
+    assert kept == 2
+    assert closed == 5, "две строки на счётчик два — окна закрыты, прогон не упал"

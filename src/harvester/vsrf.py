@@ -416,7 +416,15 @@ def _collect(source, case_type, start, end, client, engine, store) -> tuple[dict
     while True:
         response = client.get(build_url(case_type, start, end, page))
         _save_raw(engine, store, response, "vsrf_listing")
-        listing = listing_page(response.text)
+        try:
+            listing = listing_page(response.text)
+        except ValueError:
+            if page == 0:
+                raise
+            # 04.10.2026: выдача «дел» за сентябрь 2005 на шестой странице
+            # сказала «не последняя», а седьмая пришла оболочкой без выдачи.
+            # За последней страницей — это конец; недостачу поймает сверка.
+            return rows, total
         total = listing.total
         rows.update({key(row): row for row in parse(listing.content)})
         # Кончилась выдача — по признаку сайта или по пустой странице.
@@ -482,7 +490,13 @@ def sweep_listing(
             if until is not None and time.monotonic() > until:
                 return collected_total
 
-            rows, ok = _closed(source, case_type, window_from, window_to, client, engine, store)
+            try:
+                rows, ok = _closed(source, case_type, window_from, window_to, client, engine, store)
+            except ValueError as exc:
+                # Непонятное окно остаётся открытым, прогон идёт дальше:
+                # одно окно не должно останавливать остальные и тексты.
+                log.warning("%s %s %s: %s — окно не закрыто", source, case_type, window_from, exc)
+                continue
             total = len(rows) if ok else None
 
             save(engine, case_type, list(rows.values()))

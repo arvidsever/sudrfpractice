@@ -161,8 +161,16 @@ def run_queue(
     only_courts: list[str] | None = None,
     bulk: bool = True,
     limit_per_court: int | None = None,
+    max_hours: float = 6.0,
 ) -> RunTotals:
-    """Обойти очередь. Возвращает итоги прогона."""
+    """Обойти очередь. Возвращает итоги прогона.
+
+    Срок — как у свода карточек. 03.10.2026 индекс АСОЮ закончился у четырёх
+    судов из пяти за несколько часов, а пятый, 4 АСОЮ, не ответил ни разу:
+    поток досыпал паузу за паузой, прогон не кончался, держал замок ГАС
+    сутки, и свод КСОЮ всё это время стоял. С пределом потоки доводят
+    текущее окно и выходят; невзятые окна остаются в очереди.
+    """
     settings = settings or default_settings
     engine = create_engine(settings.database_url, pool_size=12, max_overflow=4)
 
@@ -183,6 +191,9 @@ def run_queue(
         for domain in domains
     ]
 
+    deadline = threading.Timer(max_hours * 3600, stop.set)
+    deadline.daemon = True
+    deadline.start()
     for thread in threads:
         thread.start()
     try:
@@ -194,6 +205,7 @@ def run_queue(
         for thread in threads:
             thread.join(timeout=120)
     finally:
+        deadline.cancel()
         engine.dispose()
 
     return totals

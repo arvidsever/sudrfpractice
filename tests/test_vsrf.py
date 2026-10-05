@@ -374,3 +374,39 @@ def test_empty_shell_after_the_last_page_ends_the_listing(db_settings, tmp_path)
     engine.dispose()
     assert kept == 2
     assert closed == 5, "две строки на счётчик два — окна закрыты, прогон не упал"
+
+
+def test_one_refused_pdf_does_not_block_the_queue(db_settings, tmp_path) -> None:
+    """05.10.2026: один PDF отдавал 500 и стоял в очереди первым —
+    сбор текстов простоял девять часов."""
+    import httpx
+    from sqlalchemy import create_engine, insert, select
+
+    from harvester.db.schema import vsrf_act, vsrf_act_text
+    from harvester.raw import RawStore
+    from harvester.vsrf import fetch_texts
+
+    engine = create_engine(db_settings.database_url)
+    with engine.begin() as connection:
+        for pdf_id in (1, 2):
+            connection.execute(insert(vsrf_act).values(pdf_id=pdf_id, case_type="CIVIL"))
+
+    class Client:
+        def get(self, url):
+            request = httpx.Request("GET", url)
+            if url.endswith("/2"):  # очередь идёт от большего номера
+                cause = httpx.HTTPStatusError(
+                    "500", request=request, response=httpx.Response(500, request=request)
+                )
+                raise RuntimeError("не удалось получить ответ") from cause
+            return httpx.Response(200, content=b"%PDF-broken", request=request)
+
+    assert fetch_texts(Client(), engine, RawStore(tmp_path)) == 1
+    with engine.connect() as connection:
+        assert connection.execute(select(vsrf_act_text.c.pdf_id)).scalars().all() == [1]
+        assert (
+            connection.execute(
+                select(vsrf_act.c.pdf_id).where(vsrf_act.c.text_fetched_at.is_(None))
+            ).all()
+            == []
+        )

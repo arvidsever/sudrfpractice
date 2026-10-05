@@ -150,6 +150,4 @@ def test_dump_is_taken_on_the_data_disk(no_pg_dump, tmp_path) -> None:
         harvester.dump.subprocess.run = original
 
     assert seen, "pg_dump должен быть вызван"
-    assert tmp_path / "данные" in seen[0].parents, (
-        f"дамп снят мимо диска с данными: {seen[0]}"
-    )
+    assert tmp_path / "данные" in seen[0].parents, f"дамп снят мимо диска с данными: {seen[0]}"

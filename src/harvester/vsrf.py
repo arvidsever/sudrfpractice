@@ -538,7 +538,10 @@ def fetch_texts(
 ) -> int:
     """Тексты актов из PDF, от свежего к старому. Очередь — `text_fetched_at
     IS NULL`, поэтому прерванный прогон продолжается сам."""
+    import httpx
+
     fetched = 0
+    refused = 0  # подряд: сколько PDF сайт не отдал
     while True:
         with engine.connect() as connection:
             pending = (
@@ -556,7 +559,28 @@ def fetch_texts(
         for pdf_id in pending:
             if until is not None and time.monotonic() > until:
                 return fetched
-            response = client.get(pdf_url(pdf_id))
+            try:
+                response = client.get(pdf_url(pdf_id))
+            except RuntimeError as exc:
+                # Сайт упорно отвечает 5xx на один PDF. 05.10.2026 акт 2427584
+                # отдавал 500, стоял в очереди первым — и девять часов каждый
+                # прогон падал на нём, не взяв ни одного текста. Отмечаем
+                # «брали» без строки текста: такие находятся запросом
+                # `text_fetched_at IS NOT NULL` без пары в `vsrf_act_text`
+                # и перепроходятся сбросом отметки. Пять отказов подряд —
+                # уже не битый файл, а лежащий сайт: тогда падаем, не метя.
+                refused += 1
+                if not isinstance(exc.__cause__, httpx.HTTPStatusError) or refused >= 5:
+                    raise
+                log.warning("%s: PDF не отдан (%s) — пропущен", pdf_id, exc.__cause__)
+                with engine.begin() as connection:
+                    connection.execute(
+                        update(vsrf_act)
+                        .where(vsrf_act.c.pdf_id == pdf_id)
+                        .values(text_fetched_at=datetime.now().astimezone())
+                    )
+                continue
+            refused = 0
             if not response.content.startswith(b"%PDF"):
                 # Не PDF — не записываем ни текст, ни отметку: возьмём снова.
                 log.warning("%s: вместо PDF пришло %d байт", pdf_id, len(response.content))

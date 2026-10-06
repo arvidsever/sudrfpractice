@@ -1,0 +1,28 @@
+[Unit]
+Description=MCP-сервер поиска по корпусу (для Claude вне мака)
+Documentation=file:///srv/sudrfpractice/docs/mcp.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sudrf
+WorkingDirectory=/srv/sudrfpractice
+# Секрет пути и имя хоста. Файл 600 root: читает его systemd, а не сервис.
+EnvironmentFile=/etc/sudrf/mcp.env
+# Только чтение и не дольше 30 с на запрос — на уровне соединения с базой,
+# а не обещанием в коде: снаружи приходят произвольные запросы.
+Environment="PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=30000"
+# Слушает только локальный адрес. Без журнала запросов: в пути адреса —
+# секрет, в journald ему не место.
+ExecStart=/srv/sudrfpractice/.venv/bin/python -m uvicorn --factory harvester.mcp_server:app --host 127.0.0.1 --port 8765 --no-access-log
+Restart=on-failure
+RestartSec=10
+MemoryMax=1G
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -171,7 +171,12 @@ def sweep_list(client, engine: Engine, store: RawStore, *, until: float | None =
     rows, last = parse_list(response.text)
     with engine.connect() as connection:
         have = connection.execute(select(func.count()).select_from(ksrf_decision)).scalar_one()
-    backfill = last is not None and have < (last - 1) * 10
+    # С запасом в 1 %: 06.10.2026 за сутки без туннеля вышло 22 решения,
+    # страниц стало 6 010, в базе было 60 077 < 60 090 — и точное сравнение
+    # отправило прогон заново по всему списку на пять часов. Дособор ходит
+    # каждый час и отстать на 600 решений не может; не хватает больше —
+    # значит первый проход действительно не закончен.
+    backfill = last is not None and have < (last - 1) * 10 * 0.99
     log.info(
         "КС: страниц %s, решений в базе %d — %s",
         last,

@@ -4,11 +4,13 @@
 работал только в Claude Code на его маке. Здесь те же две команды — `search`
 и `act` — отданы по MCP поверх HTTPS: их видит Cowork, веб и телефон.
 
-Три намеренных упрощения:
+Намеренные упрощения:
 
 * инструменты вызывают сам CLI и возвращают его вывод. Формат выдачи уже
   выверен под чтение моделью, и второго, расходящегося с ним, не появляется;
-* доступ — секретом в пути адреса, а не OAuth: коннектор claude.ai умеет
+* режимов два: на сервере — HTTP (`app`), на маке владельца — stdio с походом
+  в корпус по `ssh` (`SUDRF_MCP_SSH`), без единого открытого порта;
+* доступ по HTTP — секретом в пути адреса, а не OAuth: коннектор claude.ai умеет
   либо OAuth, либо ничего, а пользователь у сервера один. Секрет лежит
   в `/etc/sudrf/mcp.env`, в журнал и в репозиторий не попадает;
 * только чтение: задание запускается с `default_transaction_read_only=on`
@@ -46,7 +48,34 @@ server = MCPServer(
 _STDOUT = threading.Lock()
 
 
+def _over_ssh(target: str, argv: tuple[str, ...]) -> str:
+    """Локальный режим: сервер MCP живёт на маке владельца и ходит в корпус
+    по тому же `ssh`, что и скилл. Наружу ничего не открывается."""
+    import shlex
+    import subprocess
+
+    inner = "cd /srv/sudrfpractice && .venv/bin/python -m harvester " + shlex.join(argv)
+    try:
+        done = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", target]
+            + ["su sudrf -c " + shlex.quote(inner)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return "корпус недоступен отсюда: сервер не ответил за две минуты"
+    # 255 — код самого ssh: не дошли до сервера. Это не «ничего не нашлось»,
+    # и путать их нельзя: на пустом ответе строят вывод «практики нет».
+    if done.returncode == 255:
+        return f"корпус недоступен отсюда: {done.stderr.strip()[-300:]}"
+    return done.stdout or done.stderr or "запрос выполнен, но вывод пуст"
+
+
 def _cli(*argv: str) -> str:
+    if target := os.environ.get("SUDRF_MCP_SSH"):
+        return _over_ssh(target, argv)
+
     from .__main__ import main
 
     out = io.StringIO()
@@ -122,3 +151,9 @@ def app():
         json_response=True,
         transport_security=TransportSecuritySettings(allowed_hosts=[host]),
     )
+
+
+if __name__ == "__main__":
+    # Локальный коннектор Claude Desktop: stdio, корпус — по ssh
+    # (`SUDRF_MCP_SSH=root@157.22.194.96`). См. docs/mcp.md.
+    server.run()

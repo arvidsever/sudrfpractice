@@ -410,3 +410,38 @@ def test_one_refused_pdf_does_not_block_the_queue(db_settings, tmp_path) -> None
             ).all()
             == []
         )
+
+
+def test_one_unanswered_window_does_not_end_the_run(db_settings, tmp_path) -> None:
+    """08.10.2026: разовые 502 и таймаут дважды роняли весь прогон выдач.
+    Одно окно без ответа остаётся открытым; три подряд — сайт лежит."""
+    import pytest
+    from sqlalchemy import create_engine, func, select
+
+    from harvester.db.schema import vsrf_window
+    from harvester.raw import RawStore
+    from harvester.vsrf import sweep_listing
+
+    engine = create_engine(db_settings.database_url)
+    honest = (FIXTURES / "vsrf_acts.html").read_text(encoding="utf-8")
+    window = {"start": date(2026, 9, 1), "today": date(2026, 9, 30)}
+
+    class Flaky(_Client):
+        def __init__(self, text: str, failures: int):
+            super().__init__(text)
+            self.failures = failures
+
+        def get(self, url: str):
+            if self.failures:
+                self.failures -= 1
+                raise RuntimeError(f"{url}: не удалось получить ответ")
+            return super().get(url)
+
+    sweep_listing("acts", Flaky(honest, 1), engine, RawStore(tmp_path), **window)
+    with engine.connect() as connection:
+        closed = connection.execute(select(func.count()).select_from(vsrf_window)).scalar_one()
+    assert closed == 4, "одно окно из пяти осталось открытым, остальные собраны"
+
+    with pytest.raises(RuntimeError):
+        sweep_listing("acts", Flaky(honest, 3), engine, RawStore(tmp_path), **window)
+    engine.dispose()

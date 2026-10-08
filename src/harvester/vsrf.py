@@ -474,6 +474,7 @@ def sweep_listing(
     today = today or date.today()
     fresh = today - timedelta(days=RECHECK_DAYS)
     collected_total = 0
+    unanswered = 0  # подряд: окна, на которых сайт не ответил
 
     for case_type in CASE_TYPES:
         with engine.connect() as connection:
@@ -497,6 +498,18 @@ def sweep_listing(
                 # одно окно не должно останавливать остальные и тексты.
                 log.warning("%s %s %s: %s — окно не закрыто", source, case_type, window_from, exc)
                 continue
+            except RuntimeError as exc:
+                # Сайт не ответил на одном окне. 08.10.2026 прогон дважды
+                # падал целиком — раз на 502, раз на таймауте — после двух
+                # с половиной часов работы, и оба раза шло письмо. Разовый
+                # сбой сайта — не поломка сбора: окно остаётся открытым.
+                # Три окна подряд — сайт лежит, и тогда падаем с тревогой.
+                unanswered += 1
+                if "не удалось получить ответ" not in str(exc) or unanswered >= 3:
+                    raise
+                log.warning("%s %s %s: %s — окно не закрыто", source, case_type, window_from, exc)
+                continue
+            unanswered = 0
             total = len(rows) if ok else None
 
             save(engine, case_type, list(rows.values()))

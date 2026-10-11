@@ -97,10 +97,12 @@ def search(
     cartoteka: list[str] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    norm: list[str] | None = None,
+    sort: str = "relevance",
     limit: int = 10,
     offset: int = 0,
 ) -> str:
-    """Искать дела и акты в корпусе. Выдача — от свежих к старым, не по релевантности.
+    """Искать дела и акты в корпусе по словам, нормам и реквизитам.
 
     text — слова в тексте акта: "фраза целиком" в кавычках, -слово исключает,
     or даёт альтернативу. Ищи термином, а не номером статьи.
@@ -110,9 +112,14 @@ def search(
     cartoteka — g3 гражданская, u3 уголовная, p3 КоАП, adm3 КАС (кассация);
     g2, u2, p2 (апелляция). С картотекой ВС и КС в выдачу не попадают.
     date_from, date_to — дата решения, дд.мм.гггг.
+    norm — нормы, на которые акт ссылается: "ст. 333 ГК", "12.8 КоАП", "61 ГПК".
+    Только кодексы и Конституция. Точнее, чем искать номер статьи словами;
+    складывается с text: норма задаёт предмет, слова — поворот дела.
+    sort — relevance (по умолчанию): по плотности совпадения слов среди
+    2000 самых свежих совпавших актов; date: от свежих к старым.
     """
-    if not (text or number):
-        return "нужен text или number: без них это не поиск, а листание всего корпуса"
+    if not (text or number or norm):
+        return "нужен text, number или norm: без них это не поиск, а листание всего корпуса"
     argv = ["search", "--limit", str(max(1, min(limit, MAX_ROWS))), "--offset", str(max(0, offset))]
     for flag, value in (
         ("--text", text),
@@ -122,7 +129,9 @@ def search(
     ):
         if value:
             argv += [flag, value]
-    for flag, values in (("--court", court), ("--cartoteka", cartoteka)):
+    if sort in ("relevance", "date"):
+        argv += ["--sort", sort]
+    for flag, values in (("--court", court), ("--cartoteka", cartoteka), ("--norm", norm)):
         for value in values or ():
             argv += [flag, value]
     try:

@@ -99,6 +99,17 @@ def main(argv: list[str] | None = None) -> int:
         "--text",
         help='слова в тексте акта: "фраза целиком", -исключение, or — альтернатива',
     )
+    find.add_argument(
+        "--norm",
+        action="append",
+        help='норма, на которую ссылается акт: "ст. 333 ГК", "12.8 КоАП"; можно повторять',
+    )
+    find.add_argument(
+        "--sort",
+        choices=["relevance", "date"],
+        default="relevance",
+        help="relevance — по плотности совпадения слов (по умолчанию), date — от свежих",
+    )
     find.add_argument("--from", dest="decided_from", help="дата решения от, дд.мм.гггг")
     find.add_argument("--to", dest="decided_to", help="дата решения до, дд.мм.гггг")
     find.add_argument("--with-act", action="store_true", help="только с опубликованным актом")
@@ -126,6 +137,9 @@ def main(argv: list[str] | None = None) -> int:
     text_of = sub.add_parser("act", help="напечатать текст акта по номеру дела")
     text_of.add_argument("number", help="номер дела, целиком или частью")
     text_of.add_argument("--limit", type=int, default=1, help="сколько актов показать")
+
+    norms_cmd = sub.add_parser("norms", help="вынуть ссылки на нормы из текстов актов")
+    norms_cmd.add_argument("--limit", type=int, help="не больше стольких текстов на источник")
 
     juid_cmd = sub.add_parser("juid", help="дозаполнить судебный УИД из сырья карточек")
     juid_cmd.add_argument("--limit", type=int, help="не больше стольких карточек")
@@ -389,6 +403,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{args.unit}: {result}" + (f", письмо: {subject}" if subject else ""))
         return 0
 
+    if args.command == "norms":
+        import logging
+
+        from sqlalchemy import create_engine
+
+        from .config import settings
+        from .norms import backfill
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        result = backfill(create_engine(settings.database_url), limit=args.limit)
+        print(
+            f"разобрано текстов: кассация и апелляция {result['act']},"
+            f" ВС {result['vsrf']}, КС {result['ksrf']}"
+        )
+        return 0
+
     if args.command == "juid":
         import logging
 
@@ -491,6 +521,21 @@ def main(argv: list[str] | None = None) -> int:
         def as_date(value):
             return datetime.strptime(value, "%d.%m.%Y").date() if value else None
 
+        from .norms import parse_query
+
+        norms: list[str] = []
+        for value in args.norm or ():
+            parsed = parse_query(value)
+            if not parsed:
+                # Неразобранную норму нельзя молча отбросить: запрос стал бы
+                # шире, чем просили, а выдача — выглядеть ответом на него.
+                print(
+                    f"норма не разобрана: «{value}». Нужны номер статьи и кодекс:"
+                    ' "ст. 333 ГК", "статья 12.8 КоАП", "61 ГПК"'
+                )
+                return 2
+            norms += parsed
+
         engine = create_engine(settings.database_url)
         query = Query(
             courts=tuple(args.court or ()),
@@ -500,6 +545,8 @@ def main(argv: list[str] | None = None) -> int:
             lower_courts=tuple(args.lower_court or ()),
             number=args.number,
             text=args.text,
+            norms=tuple(norms),
+            sort=args.sort,
             decided_from=as_date(args.decided_from),
             decided_to=as_date(args.decided_to),
             with_act=True if args.with_act else None,
@@ -536,7 +583,23 @@ def main(argv: list[str] | None = None) -> int:
         # и с тех пор оговорка занижала корпус — ровно наоборот тому, ради
         # чего её ставили. Неполны теперь тексты, и только при поиске по ним
         # об этом и стоит говорить.
-        if args.text:
+        if norms:
+            print(f"нормы: {', '.join(norms)} — акт ссылается на каждую")
+        if args.text and args.sort == "relevance":
+            from .search import RANK_WINDOW
+
+            print(
+                "порядок: по плотности совпадения"
+                + (
+                    f" среди {RANK_WINDOW} самых свежих совпавших актов;"
+                    " более старые — датами (--to) или --sort date"
+                    if found.total > RANK_WINDOW
+                    else ""
+                )
+            )
+        elif args.text or norms:
+            print("порядок: от свежих к старым")
+        if args.text or norms:
             print(f"тексты разобраны у {found.texts_share:.0%} актов — это потолок поиска\n")
         else:
             print(f"это {found.collected_share:.1%} собранного индекса\n")

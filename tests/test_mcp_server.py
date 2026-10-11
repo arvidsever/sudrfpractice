@@ -33,7 +33,7 @@ def test_tools_answer_with_cli_output(db_settings, monkeypatch) -> None:
     assert "О соразмерности неустойки." in mcp_server.act("57-П/2026")
     # Кривые параметры — ответ, а не падение сервера.
     assert "дд.мм.гггг" in mcp_server.search(text="неустойка", date_from="2026-01-01")
-    assert "нужен text или number" in mcp_server.search()
+    assert "нужен text, number или norm" in mcp_server.search()
 
 
 def test_server_does_not_start_without_a_real_secret(monkeypatch) -> None:

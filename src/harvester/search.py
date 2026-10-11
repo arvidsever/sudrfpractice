@@ -18,10 +18,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 
-from sqlalchemy import Engine, Select, func, literal_column, select
+from sqlalchemy import Engine, Select, Text, and_, cast, func, literal_column, select
+from sqlalchemy.dialects.postgresql import ARRAY, array
 
 from .db.schema import (
     act,
@@ -29,6 +30,7 @@ from .db.schema import (
     case,
     ksrf_decision,
     ksrf_decision_text,
+    norm_ref,
     vsrf_act,
     vsrf_act_text,
     vsrf_claim,
@@ -55,6 +57,12 @@ class Query:
     #: Слова в тексте акта. Синтаксис `websearch_to_tsquery`: кавычки —
     #: фраза целиком, `-слово` — исключение, `or` — альтернатива.
     text: str | None = None
+    #: Нормы, на которые акт обязан ссылаться: ключи `ГК:333` из
+    #: `norms.parse_query`. Все сразу — складываются через И.
+    norms: tuple[str, ...] = ()
+    #: `relevance` — по плотности совпадения среди самых свежих совпавших
+    #: актов (только при поиске по словам); `date` — от свежего к старому.
+    sort: str = "relevance"
     decided_from: date | None = None
     decided_to: date | None = None
     #: Только дела с опубликованным актом. `None` — неважно.
@@ -92,7 +100,26 @@ def _tsquery(text: str):
     return func.websearch_to_tsquery(REGCONFIG, text)
 
 
-def _matching_acts(text: str):
+def _act_matches(query: Query) -> list:
+    """Условия на текст акта: слова и нормы. Оба — про один и тот же акт:
+    «неустойка» в одном акте дела и «ГК:333» в другом — не совпадение."""
+    conditions = []
+    if query.text:
+        conditions.append(TSV.op("@@")(_tsquery(query.text)))
+    if query.norms:
+        conditions.append(
+            select(literal_column("1"))
+            .where(
+                norm_ref.c.source == "act",
+                norm_ref.c.doc_id == act_text.c.act_id,
+                norm_ref.c.norms.contains(cast(array(query.norms), ARRAY(Text))),
+            )
+            .exists()
+        )
+    return conditions
+
+
+def _matching_acts(query: Query):
     """Есть ли у дела акт, текст которого отвечает запросу.
 
     Через `EXISTS`, а не соединением: у дела бывает несколько актов,
@@ -102,12 +129,12 @@ def _matching_acts(text: str):
     return (
         select(literal_column("1"))
         .select_from(act.join(act_text, act_text.c.act_id == act.c.id))
-        .where(act.c.case_pk == case.c.id, TSV.op("@@")(_tsquery(text)))
+        .where(act.c.case_pk == case.c.id, *_act_matches(query))
         .exists()
     )
 
 
-def _snippet(text: str):
+def _snippet(query: Query):
     """Кусок текста вокруг совпадения — иначе непонятно, за что нашлось.
 
     Считается только для показанных строк: это скалярный подзапрос
@@ -118,12 +145,12 @@ def _snippet(text: str):
             func.ts_headline(
                 REGCONFIG,
                 act_text.c.plain_text,
-                _tsquery(text),
+                _tsquery(query.text),
                 "MaxFragments=1, MaxWords=30, MinWords=15, StartSel=«, StopSel=»",
             )
         )
         .select_from(act.join(act_text, act_text.c.act_id == act.c.id))
-        .where(act.c.case_pk == case.c.id, TSV.op("@@")(_tsquery(text)))
+        .where(act.c.case_pk == case.c.id, *_act_matches(query))
         .limit(1)
         .scalar_subquery()
     )
@@ -145,8 +172,8 @@ def _narrow(statement: Select, query: Query) -> Select:
         # Номер дела пишут по-разному, и точное совпадение почти никогда
         # не то, что имеют в виду. Триграммный индекс это и держит.
         statement = statement.where(case.c.case_number.ilike(f"%{query.number}%"))
-    if query.text:
-        statement = statement.where(_matching_acts(query.text))
+    if query.text or query.norms:
+        statement = statement.where(_matching_acts(query))
     if query.decided_from is not None:
         statement = statement.where(case.c.decision_date >= query.decided_from)
     if query.decided_to is not None:
@@ -168,6 +195,59 @@ IN_SUPREME = (
     .exists()
     .label("in_supreme")
 )
+
+#: Сколько самых свежих совпавших актов ранжируется. Ранг считается по
+#: `tsvector` каждого кандидата, а это чтение десятков килобайт на акт:
+#: 2 000 — 1,4 с на живом корпусе, все 37 тысяч по «несоразмерности
+#: неустойки» — уже десятки секунд.
+# ponytail: окно по свежести, а не весь корпус — старый опорный акт вне
+# окна не всплывёт; сдвигается датами (`decided_to`). Нужен весь корпус —
+# это уже отдельный индекс ранжирования (RUM) или внешний поиск.
+RANK_WINDOW = 2000
+
+
+def _by_relevance(statement: Select, query: Query) -> Select:
+    """Дела по убыванию плотности совпадения (`ts_rank_cd`, с поправкой
+    на длину текста) среди `RANK_WINDOW` самых свежих совпавших актов.
+
+    Кандидаты берутся от полнотекстового индекса, а не обходом дел по дате:
+    второй путь на том же запросе — 15 с против 0,4 с.
+    """
+    recent = (
+        _narrow(
+            select(act.c.case_pk, act_text.c.act_id).select_from(
+                act_text.join(act, act.c.id == act_text.c.act_id).join(
+                    case, case.c.id == act.c.case_pk
+                )
+            ),
+            # Условия на текст ставим сами, прямо на эту строку `act_text`,
+            # — иначе `_narrow` добавил бы второй обход через EXISTS.
+            replace(query, text=None, norms=()),
+        )
+        .where(and_(*_act_matches(query)))
+        .order_by(case.c.decision_date.desc().nulls_last())
+        .limit(RANK_WINDOW)
+        .subquery("recent")
+    )
+    scored = act_text.alias("scored")
+    ranked = (
+        select(
+            recent.c.case_pk,
+            func.max(func.ts_rank_cd(literal_column("scored.tsv"), _tsquery(query.text), 1)).label(
+                "rank"
+            ),
+        )
+        .select_from(recent.join(scored, scored.c.act_id == recent.c.act_id))
+        .group_by(recent.c.case_pk)
+        .subquery("ranked")
+    )
+    return (
+        statement.join(ranked, ranked.c.case_pk == case.c.id)
+        .order_by(ranked.c.rank.desc(), case.c.decision_date.desc().nulls_last())
+        .limit(query.limit)
+        .offset(query.offset)
+    )
+
 
 #: Колонки выдачи. Ровно то, по чему дело узнают, — без текста и участников.
 COLUMNS = (
@@ -202,7 +282,7 @@ def run(engine: Engine, query: Query, *, with_facets: bool = False) -> Found:
         # которое не покажут, незачем: при поиске по словам потолок задают
         # тексты, а не индекс.
         collected_share = texts_share = 0.0
-        if query.text:
+        if query.text or query.norms:
             acts = connection.execute(select(func.count()).select_from(act)).scalar_one()
             texts = connection.execute(select(func.count()).select_from(act_text)).scalar_one()
             texts_share = texts / acts if acts else 0.0
@@ -210,19 +290,19 @@ def run(engine: Engine, query: Query, *, with_facets: bool = False) -> Found:
             collected = connection.execute(select(func.count()).select_from(case)).scalar_one()
             collected_share = total / collected if collected else 0.0
 
-        columns = (*COLUMNS, _snippet(query.text).label("snippet")) if query.text else COLUMNS
-        rows = [
-            dict(row._mapping)
-            for row in connection.execute(
+        columns = (*COLUMNS, _snippet(query).label("snippet")) if query.text else COLUMNS
+        if query.text and query.sort == "relevance":
+            statement = _by_relevance(select(*columns), query)
+        else:
+            statement = (
                 _narrow(select(*columns), query)
-                # Свежие дела вперёд: практику ищут от нового к старому.
-                # `nulls last` — потому что нерассмотренные дела без даты
-                # решения иначе всплыли бы первыми.
+                # Свежие дела вперёд. `nulls last` — потому что нерассмотренные
+                # дела без даты решения иначе всплыли бы первыми.
                 .order_by(case.c.decision_date.desc().nulls_last(), case.c.id.desc())
                 .limit(query.limit)
                 .offset(query.offset)
             )
-        ]
+        rows = [dict(row._mapping) for row in connection.execute(statement)]
 
         facets: dict[str, list[tuple[str, int]]] = {}
         if with_facets:
@@ -258,6 +338,7 @@ def run(engine: Engine, query: Query, *, with_facets: bool = False) -> Found:
 @dataclass(frozen=True, slots=True)
 class _Higher:
     title: str
+    source: str  # метка в `norm_ref`
     head: object  # таблица реквизитов
     body: object  # таблица текстов; обе связаны по `pdf_id`
     decided: object  # колонка даты
@@ -269,6 +350,7 @@ class _Higher:
 HIGHER = {
     "www.vsrf.ru": _Higher(
         "Верховный Суд РФ",
+        "vsrf",
         vsrf_act,
         vsrf_act_text,
         vsrf_act.c.act_date,
@@ -278,6 +360,7 @@ HIGHER = {
     ),
     "www.ksrf.ru": _Higher(
         "Конституционный Суд РФ",
+        "ksrf",
         ksrf_decision,
         ksrf_decision_text,
         ksrf_decision.c.decision_date,
@@ -295,7 +378,7 @@ def wants_higher(query: Query) -> tuple[str, ...]:
     которых у ВС и КС нет: «картотека g3» про них ничего не говорит,
     и подмешивать их к такому запросу — значит отвечать не на него.
     """
-    if not (query.text or query.number):
+    if not (query.text or query.number or query.norms):
         return ()
     if query.cartoteki or query.judges or query.results or query.lower_courts:
         return ()
@@ -333,6 +416,16 @@ def run_higher(engine: Engine, query: Query, domain: str) -> Found:
     def narrow(statement: Select) -> Select:
         if query.text:
             statement = statement.where(tsv.op("@@")(_tsquery(query.text)))
+        if query.norms:
+            statement = statement.where(
+                select(literal_column("1"))
+                .where(
+                    norm_ref.c.source == spec.source,
+                    norm_ref.c.doc_id == head.c.pdf_id,
+                    norm_ref.c.norms.contains(cast(array(query.norms), ARRAY(Text))),
+                )
+                .exists()
+            )
         if query.number:
             statement = statement.where(head.c.number.ilike(f"%{query.number}%"))
         if query.decided_from is not None:
@@ -359,7 +452,17 @@ def run_higher(engine: Engine, query: Query, domain: str) -> Found:
             _higher_row(domain, row)
             for row in connection.execute(
                 narrow(select(*columns).select_from(joined))
-                .order_by(spec.decided.desc().nulls_last(), head.c.pdf_id.desc())
+                # Актов у высших судов по запросу сотни, а не десятки тысяч:
+                # ранжируются все совпавшие, окно не нужно.
+                .order_by(
+                    *(
+                        [func.ts_rank_cd(tsv, _tsquery(query.text), 1).desc()]
+                        if query.text and query.sort == "relevance"
+                        else []
+                    ),
+                    spec.decided.desc().nulls_last(),
+                    head.c.pdf_id.desc(),
+                )
                 .limit(query.limit)
                 .offset(query.offset)
             )

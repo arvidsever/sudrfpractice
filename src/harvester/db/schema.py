@@ -25,12 +25,14 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     MetaData,
+    SmallInteger,
     String,
     Table,
     Text,
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 
 metadata = MetaData()
 
@@ -345,4 +347,17 @@ ksrf_decision_text = Table(
     Column("raw_page_id", BigInteger, ForeignKey("raw_page.id"), nullable=True),
     Column("plain_text", Text, nullable=False),
     # tsv — generated-колонка в миграции, как у act_text.
+)
+
+
+# --- Ссылки на нормы (миграция 0015, `harvester/norms.py`) ------------------
+
+norm_ref = Table(
+    "norm_ref",
+    metadata,
+    Column("source", Text, primary_key=True, comment="act | vsrf | ksrf"),
+    Column("doc_id", BigInteger, primary_key=True, autoincrement=False),
+    Column("norms", ARRAY(Text), nullable=False, comment="ключи вида ГК:333"),
+    Column("parser_version", SmallInteger, nullable=False),
+    # GIN по norms — в миграции.
 )

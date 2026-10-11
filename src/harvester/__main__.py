@@ -127,6 +127,9 @@ def main(argv: list[str] | None = None) -> int:
     text_of.add_argument("number", help="номер дела, целиком или частью")
     text_of.add_argument("--limit", type=int, default=1, help="сколько актов показать")
 
+    juid_cmd = sub.add_parser("juid", help="дозаполнить судебный УИД из сырья карточек")
+    juid_cmd.add_argument("--limit", type=int, help="не больше стольких карточек")
+
     catch = sub.add_parser("catchup", help="добрать опубликованное за последние дни")
     catch.add_argument("--days", type=int, default=3, help="сколько дней назад, по умолчанию 3")
     catch.add_argument("--court", action="append")
@@ -384,6 +387,25 @@ def main(argv: list[str] | None = None) -> int:
             print(f"письмо не ушло: {exc}")
             return 0
         print(f"{args.unit}: {result}" + (f", письмо: {subject}" if subject else ""))
+        return 0
+
+    if args.command == "juid":
+        import logging
+
+        from sqlalchemy import create_engine
+
+        from .config import settings
+        from .juid import backfill
+        from .s3 import S3Store
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        result = backfill(
+            create_engine(settings.database_url), settings.raw_root, S3Store(), limit=args.limit
+        )
+        print(
+            f"УИД найден у {result['found']}, в карточке нет у {result['absent']},"
+            f" сырьё не прочитано у {result['unread']}"
+        )
         return 0
 
     if args.command == "act":

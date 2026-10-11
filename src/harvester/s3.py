@@ -57,6 +57,10 @@ class S3Store:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._client.download_file(self.bucket, key, str(path))
 
+    def get_bytes(self, key: str) -> bytes:
+        """Объект в память — когда страница нужна для разбора, а не на диске."""
+        return self._client.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+
     def delete(self, key: str) -> None:
         """Удалить объект. Нужен только для ротации дампов: сырьё
         не удаляется никогда — оно адресуется содержимым и дороже базы."""

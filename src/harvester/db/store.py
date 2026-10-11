@@ -194,6 +194,7 @@ def save_card(connection: Connection, case_pk: int, card: CaseCard) -> None:
         "category": card.category,
         "appealed_act": card.appealed_act,
         "appeal_result": card.appeal_result,
+        "judicial_uid": card.case_uid or "",
         "card_fetched_at": datetime.now(UTC),
     }
     if card.lower_court is not None:

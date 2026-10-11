@@ -77,7 +77,10 @@ case = Table(
     Column("court_domain", String(64), ForeignKey("court.domain"), nullable=False),
     Column("cartoteka_id", String(16), ForeignKey("cartoteka.id"), nullable=False),
     Column("case_id", String(32), nullable=True, comment="case_id в базе суда"),
-    Column("case_uid", String(64), nullable=True, comment="УИД дела"),
+    Column("case_uid", String(64), nullable=True, comment="GUID записи на сайте суда"),
+    #: Судебный УИД (`77RS0016-02-2023-023173-37`) — один на дело во всех
+    #: инстанциях. '' — в карточке его нет, NULL — карточку не разбирали.
+    Column("judicial_uid", Text, nullable=True),
     Column("case_number", Text, nullable=False),
     Column("receipt_date", Date, nullable=True),
     Column("essence", Text, nullable=True),

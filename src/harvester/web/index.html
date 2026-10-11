@@ -90,7 +90,7 @@ mark{background:var(--mark);color:inherit}
 </head>
 <body>
 <div id="home" hidden>
-  <header><a href="#" style="text-decoration:none">О корпусе</a></header>
+  <header><a id="logout" href="/logout" style="text-decoration:none" hidden>Выйти</a></header>
   <h1 class="serif">Судебная практика</h1>
   <form data-form>
     <label class="sr" for="q0">Поиск по судебной практике</label>
@@ -366,6 +366,9 @@ function highlight(text, words) {
   const re = new RegExp("(" + words.map((w) => w + "[а-яё]*").join("|") + ")", "giu");
   return text.split(re).map((p, i) => (i % 2 ? el("mark", {}, p) : p));
 }
+
+// «Выйти» нужен только там, где есть пароль (публичный режим).
+fetch("/api/session").then((r) => r.json()).then((d) => { $("#logout").hidden = !d.auth; }).catch(() => {});
 
 route();
 </script>

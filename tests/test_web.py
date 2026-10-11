@@ -150,3 +150,100 @@ def test_unknown_total_is_null_not_an_invented_number(db_settings, monkeypatch) 
     assert body["total"] is None and body["capped"] is True
     assert body["rows"], "строки при этом показываются"
     engine.dispose()
+
+
+# --- пароль на входе ---------------------------------------------------------
+
+
+def _locked(db_settings, *, secure: bool = False):
+    from harvester.web import auth as authlib
+
+    engine = create_engine(db_settings.database_url)
+    _seed(db_settings)
+    _seed_texts(engine)
+    guard = authlib.Auth(authlib.hash_password("correct horse battery"), "k" * 40, secure)
+    return TestClient(create_app(engine, auth=guard), follow_redirects=False), guard, engine
+
+
+def test_without_cookie_everything_but_login_is_closed(db_settings) -> None:
+    client, _, engine = _locked(db_settings)
+
+    page = client.get("/")
+    assert page.status_code == 303 and page.headers["location"] == "/login"
+    api = client.get("/api/search", params={"q": "неустойка"})
+    assert api.status_code == 401, "API не отдаёт строк без входа"
+    assert client.get("/api/act", params={"ref": "c|x|y"}).status_code == 401
+    assert client.get("/login").status_code == 200
+    engine.dispose()
+
+
+def test_login_sets_httponly_cookie_and_opens_the_site(db_settings, monkeypatch) -> None:
+    import asyncio
+
+    async def no_wait(_):  # не ждём секунду на каждый тест
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", no_wait)
+    client, _, engine = _locked(db_settings, secure=True)
+
+    wrong = client.post("/login", content="password=nope")
+    assert wrong.status_code == 401 and "sudrf_session" not in wrong.headers.get("set-cookie", "")
+
+    ok = client.post("/login", content="password=correct+horse+battery")
+    assert ok.status_code == 303 and ok.headers["location"] == "/"
+    cookie = ok.headers["set-cookie"].lower()
+    assert "httponly" in cookie and "secure" in cookie and "samesite=lax" in cookie
+
+    opened = TestClient(client.app, follow_redirects=False, base_url="https://testserver")
+    opened.cookies.set("sudrf_session", ok.cookies["sudrf_session"])
+    assert opened.get("/api/search", params={"q": "неустойка"}).status_code == 200
+    assert opened.get("/").headers["content-security-policy"].startswith("default-src 'self'")
+    engine.dispose()
+
+
+def test_forged_and_expired_cookies_are_refused() -> None:
+    import time
+
+    from harvester.web import auth as authlib
+
+    guard = authlib.Auth(authlib.hash_password("x" * 12), "k" * 40)
+    good = guard.make_cookie()
+    assert guard.valid_cookie(good)
+    expires, _, signature = good.partition(".")
+    assert not guard.valid_cookie(f"{int(expires) + 999999}.{signature}"), "срок не продлить"
+    assert not guard.valid_cookie(f"{expires}.{'0' * 64}")
+    assert not guard.valid_cookie(None) and not guard.valid_cookie("мусор")
+    other = authlib.Auth(guard.password_hash, "z" * 40)
+    assert not other.valid_cookie(good), "cookie с чужим ключом не годится"
+    assert not guard.valid_cookie(good, now=time.time() + 15 * 86400), "cookie устаревает"
+
+
+def test_login_is_throttled_per_client(db_settings, monkeypatch) -> None:
+    import asyncio
+
+    async def no_wait(_):
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", no_wait)
+    client, _, engine = _locked(db_settings)
+
+    for _ in range(5):
+        assert client.post("/login", content="password=bad").status_code == 401
+    blocked = client.post("/login", content="password=correct+horse+battery")
+
+    assert blocked.status_code == 429, "после пяти промахов и верный пароль не принимается"
+    engine.dispose()
+
+
+def test_public_mode_refuses_to_start_without_a_password(monkeypatch) -> None:
+    from harvester.web import auth as authlib
+
+    assert authlib.from_env({}) is None, "локальный режим — без пароля"
+    with pytest.raises(RuntimeError):
+        authlib.from_env({"SUDRF_WEB_REQUIRE_AUTH": "1"})
+    with pytest.raises(RuntimeError):
+        authlib.from_env({"SUDRF_WEB_PASSWORD_HASH": "x", "SUDRF_WEB_SESSION_KEY": "коротко"})
+    assert authlib.check_password(
+        "правильный пароль 1", authlib.hash_password("правильный пароль 1")
+    )
+    assert not authlib.check_password("другой", authlib.hash_password("правильный пароль 1"))

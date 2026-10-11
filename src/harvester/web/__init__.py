@@ -15,15 +15,19 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 import re
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
+from urllib.parse import parse_qs
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi import Query as Param
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import Engine, create_engine, func, select
 from sqlalchemy.exc import DBAPIError
 
@@ -42,6 +46,8 @@ from ..search import (
 
 #: «Найдено» считается до этого числа и дальше пишется «более».
 COUNT_CAP = 10_000
+
+from . import auth as authlib  # noqa: E402
 
 PAGE = Path(__file__).with_name("index.html")
 
@@ -77,14 +83,93 @@ def _norm_title(key: str) -> str:
     return f"ст. {number} {code}" + ("" if code == "КоАП" else " РФ")
 
 
-def create_app(engine: Engine | None = None) -> FastAPI:
+_FROM_ENV = object()
+
+#: Браузеру нечего брать с чужих адресов: страница и API — одно происхождение.
+CSP = (
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+)
+
+
+def create_app(
+    engine: Engine | None = None, auth: authlib.Auth | None | object = _FROM_ENV
+) -> FastAPI:
     engine = engine or _connect()
+    if auth is _FROM_ENV:
+        auth = authlib.from_env()
     app = FastAPI(title="Судебная практика", docs_url=None, redoc_url=None)
-    # Защита от DNS-rebinding: страница из чужого домена не должна дотянуться
-    # до корпуса через браузер владельца, пока туннель открыт.
-    app.add_middleware(
-        TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"]
-    )
+
+    @app.middleware("http")
+    async def gate(request: Request, call_next):
+        """Пароль до первой страницы: без cookie открыт только `/login`."""
+        path = request.url.path
+        if (
+            auth
+            and path not in ("/login", "/logout")
+            and not auth.valid_cookie(request.cookies.get(authlib.COOKIE))
+        ):
+            if path.startswith("/api/"):
+                response = JSONResponse({"detail": "Нужен вход"}, status_code=401)
+            else:
+                response = RedirectResponse("/login", status_code=303)
+        else:
+            response = await call_next(request)
+        response.headers["Content-Security-Policy"] = CSP
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        # Слова поиска и акты не должны оседать в кэшах браузера и прокси.
+        response.headers["Cache-Control"] = "no-store"
+        if auth and auth.secure_cookie:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"
+        return response
+
+    def login_page(message: str = "", status: int = 200) -> HTMLResponse:
+        note = f'<div class="err" role="alert">{message}</div>' if message else ""
+        return HTMLResponse(authlib.LOGIN_PAGE.format(message=note), status_code=status)
+
+    @app.get("/login", include_in_schema=False)
+    def login_form(request: Request):
+        if auth and auth.valid_cookie(request.cookies.get(authlib.COOKIE)):
+            return RedirectResponse("/", status_code=303)
+        return login_page()
+
+    @app.post("/login", include_in_schema=False)
+    async def login(request: Request):
+        if not auth:
+            return RedirectResponse("/", status_code=303)
+        client = request.client.host if request.client else "?"
+        if auth.blocked(client):
+            return login_page("Слишком много попыток. Подождите четверть часа.", 429)
+        body = parse_qs((await request.body()).decode("utf-8", "replace"), max_num_fields=4)
+        password = (body.get("password") or [""])[0][:200]
+        if not await run_in_threadpool(authlib.check_password, password, auth.password_hash):
+            auth.failed(client)
+            await asyncio.sleep(1)  # перебор по сети не должен быть быстрым
+            return login_page("Неверный пароль.", 401)
+        auth.forgive(client)
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(
+            authlib.COOKIE,
+            auth.make_cookie(),
+            max_age=authlib.SESSION_DAYS * 86400,
+            httponly=True,
+            secure=auth.secure_cookie,
+            samesite="lax",
+        )
+        return response
+
+    @app.get("/logout", include_in_schema=False)
+    def logout() -> RedirectResponse:
+        response = RedirectResponse("/login", status_code=303)
+        response.delete_cookie(authlib.COOKIE)
+        return response
+
+    @app.get("/api/session")
+    def session() -> dict:
+        return {"auth": auth is not None}
 
     @app.exception_handler(DBAPIError)
     def database_failed(_, exc: DBAPIError) -> JSONResponse:
@@ -318,4 +403,10 @@ def create_app(engine: Engine | None = None) -> FastAPI:
             }
         raise HTTPException(400, "ref не разобран")
 
+    # Защита от DNS-rebinding: страница из чужого домена не должна дотянуться
+    # до корпуса через браузер владельца. Добавляется последней — значит,
+    # проверяется раньше всего остального. Публичный адрес — из окружения.
+    hosts = ["localhost", "127.0.0.1", "testserver"]
+    hosts += [h.strip() for h in os.environ.get("SUDRF_WEB_HOSTS", "").split(",") if h.strip()]
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
     return app

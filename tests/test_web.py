@@ -3,12 +3,18 @@
 
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
+import pytest
 from sqlalchemy import create_engine
 
 from harvester.norms import split_query
-from harvester.web import create_app
 from test_search import _seed, _seed_higher, _seed_texts
+
+# FastAPI ставится только там, где поднят интерфейс (`.[api]`), как и `mcp`.
+pytest.importorskip("fastapi")
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from harvester.web import create_app  # noqa: E402
 
 
 def _client(db_settings) -> tuple[TestClient, object]:

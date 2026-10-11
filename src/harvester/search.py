@@ -242,8 +242,11 @@ def _by_relevance(statement: Select, query: Query) -> Select:
             # — иначе `_narrow` добавил бы второй обход через EXISTS.
             replace(query, text=None, norms=()),
         )
-        .where(and_(*_act_matches(query)))
-        .order_by(case.c.decision_date.desc().nulls_last())
+        .where(and_(*_act_matches(query)), case.c.decision_date.is_not(None))
+        # Без `NULLS LAST`: с ним индекс по дате не берётся (см. `_by_date`), и
+        # планировщик собирает все совпавшие акты, чтобы выбрать свежие.
+        # Нерассмотренные дела без даты в «самые свежие» и так не попадают.
+        .order_by(case.c.decision_date.desc())
         .limit(RANK_WINDOW)
         .subquery("recent")
     )

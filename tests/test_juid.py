@@ -11,7 +11,11 @@ from harvester.db.store import save_raw_page
 from harvester.juid import backfill
 from harvester.raw import RawStore
 
-URL = "https://5kas.sudrf.ru/modules.php?name=sud_delo&name_op=case&case_id=1&case_uid=g-1"
+CARD = (
+    "https://5kas.sudrf.ru/modules.php?name=sud_delo&name_op=case&case_id=1&case_uid=g-1&delo_id=42"
+)
+# Запрос уходит с `new=0`, которого в ссылке из выдачи нет.
+URL = CARD.replace("&delo_id", "&new=0&delo_id")
 
 
 class _NoS3:
@@ -31,7 +35,7 @@ def test_uid_is_backfilled_from_raw_cards(db_settings, card_criminal) -> None:
     )
     with engine.begin() as connection:
         save_raw_page(connection, record)
-        for number, url in (("77-1/2026", URL), ("77-2/2026", URL + "x")):
+        for number, url in (("77-1/2026", CARD), ("77-2/2026", CARD + "x")):
             connection.execute(
                 insert(case).values(
                     court_domain="5kas.sudrf.ru",

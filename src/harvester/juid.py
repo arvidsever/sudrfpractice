@@ -21,6 +21,9 @@ from .parse.card import parse_card
 
 log = logging.getLogger("harvester.juid")
 
+#: Адреса сравниваются без параметра `new`: в выдаче ссылка на карточку бывает
+#: без него, а запрос уходит с `new=0`. Сравнение «как есть» молча оставило
+#: без УИД 292 тысячи карточек из 1,6 млн — всю апелляцию и часть кассации.
 #: Очередь — карточки, у которых УИД ещё не смотрели. Сырьё находится
 #: по адресу карточки; у дела их бывает несколько (перечитывали) — берём
 #: последнюю.
@@ -28,7 +31,10 @@ PENDING = text(
     """
     SELECT DISTINCT ON (k.id) k.id, r.path, r.url
     FROM "case" k
-    JOIN raw_page r ON r.url = k.card_url AND r.content_kind = 'card'
+    JOIN raw_page r
+      ON r.content_kind = 'card'
+     AND r.court_domain = k.court_domain
+     AND regexp_replace(r.url, '&new=[0-9]+', '') = regexp_replace(k.card_url, '&new=[0-9]+', '')
     WHERE k.judicial_uid IS NULL AND k.card_fetched_at IS NOT NULL
     ORDER BY k.id, r.id DESC
     LIMIT :limit

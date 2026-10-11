@@ -31,6 +31,7 @@ from .db.schema import (
     ksrf_decision_text,
     vsrf_act,
     vsrf_act_text,
+    vsrf_claim,
 )
 
 #: Сколько дел отдавать за раз, если не сказано иначе.
@@ -159,6 +160,15 @@ def _narrow(statement: Select, query: Query) -> Select:
     return statement
 
 
+#: Дошло ли дело до Верховного Суда: есть ли там производство с тем же
+#: судебным УИД. Считается только для показанных строк.
+IN_SUPREME = (
+    select(literal_column("1"))
+    .where(func.upper(vsrf_claim.c.case_uid) == case.c.judicial_uid, case.c.judicial_uid != "")
+    .exists()
+    .label("in_supreme")
+)
+
 #: Колонки выдачи. Ровно то, по чему дело узнают, — без текста и участников.
 COLUMNS = (
     case.c.court_domain,
@@ -169,6 +179,7 @@ COLUMNS = (
     case.c.result,
     case.c.act_published,
     case.c.card_url,
+    IN_SUPREME,
 )
 
 #: Фасеты: как называется и по какой колонке считается.
@@ -376,3 +387,64 @@ def higher_texts(engine: Engine, number: str, limit: int) -> list[dict]:
                 )
             ]
     return found
+
+
+# --- Одно дело в разных инстанциях ------------------------------------------
+#
+# Судебный УИД (`case.judicial_uid`, `vsrf_claim.case_uid`) у дела один
+# на все инстанции. Связь — запросом по нему, а не отдельной таблицей:
+# хранить нечего, оба конца уже проиндексированы.
+
+
+def uid_of_supreme_act(engine: Engine, pdf_id: int) -> str | None:
+    """Судебный УИД дела, по которому вынесен акт ВС."""
+    with engine.connect() as connection:
+        return connection.execute(
+            select(func.upper(vsrf_claim.c.case_uid))
+            .select_from(vsrf_act.join(vsrf_claim, vsrf_claim.c.claim_id == vsrf_act.c.claim_id))
+            .where(vsrf_act.c.pdf_id == pdf_id)
+        ).scalar()
+
+
+def instances(engine: Engine, uid: str | None) -> list[str]:
+    """Все производства по делу с этим судебным УИД — строками для печати:
+    сначала наш корпус (апелляция, кассация), затем Верховный Суд с актами."""
+    if not uid:
+        return []
+    lines = []
+    with engine.connect() as connection:
+        for row in connection.execute(
+            select(
+                case.c.court_domain,
+                case.c.case_number,
+                case.c.decision_date,
+                case.c.result,
+                case.c.card_url,
+            )
+            .where(case.c.judicial_uid == uid)
+            .order_by(case.c.decision_date.nulls_last())
+        ):
+            lines.append(
+                f"  {row.court_domain}  {row.case_number}  {row.decision_date or '—'}"
+                f"  {(row.result or '—')[:70]}"
+            )
+            if row.card_url:
+                lines.append(f"       {row.card_url}")
+        for claim in connection.execute(
+            select(vsrf_claim.c.claim_id, vsrf_claim.c.number, vsrf_claim.c.received_date)
+            .where(func.upper(vsrf_claim.c.case_uid) == uid)
+            .order_by(vsrf_claim.c.received_date.nulls_last())
+        ):
+            lines.append(
+                f"  www.vsrf.ru  {claim.number or '—'}  поступило {claim.received_date or '—'}"
+            )
+            for found in connection.execute(
+                select(vsrf_act.c.pdf_id, vsrf_act.c.act_kind, vsrf_act.c.act_date)
+                .where(vsrf_act.c.claim_id == claim.claim_id)
+                .order_by(vsrf_act.c.act_date.nulls_last())
+            ):
+                lines.append(
+                    f"       {found.act_kind or 'акт'} от {found.act_date or '—'}:"
+                    f" {HIGHER['www.vsrf.ru'].url.format(found.pdf_id)}"
+                )
+    return lines

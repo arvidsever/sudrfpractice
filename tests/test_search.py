@@ -279,3 +279,40 @@ def test_higher_courts_stay_out_of_queries_about_facets_they_lack(db_settings) -
     assert wants_higher(Query()) == ()
     assert [r["court_domain"] for r in higher_texts(engine, "57-П", 5)] == ["www.ksrf.ru"]
     assert higher_texts(engine, "АПЛ26-2", 5) == []
+
+
+def test_one_case_is_followed_across_instances(db_settings) -> None:
+    """Судебный УИД у дела один на все инстанции: по нему кассация
+    находит своё производство в ВС, а акт ВС — кассацию под ним."""
+    from sqlalchemy import update
+
+    from harvester.db.schema import vsrf_act, vsrf_claim
+    from harvester.search import instances, uid_of_supreme_act
+
+    engine = _seed(db_settings)
+    uid = "77RS0016-02-2023-023173-37"
+    with engine.begin() as connection:
+        connection.execute(
+            update(case).where(case.c.case_number == "88-1/2026").values(judicial_uid=uid)
+        )
+        # ВС пишет УИД как придётся — встречается и строчными.
+        connection.execute(
+            insert(vsrf_claim).values(
+                claim_id="c1", number="5-КГ26-1-К2", case_type="CIVIL", case_uid=uid.lower()
+            )
+        )
+        connection.execute(
+            insert(vsrf_act).values(
+                pdf_id=1, claim_id="c1", case_type="CIVIL", act_kind="Определение"
+            )
+        )
+
+    assert uid_of_supreme_act(engine, 1) == uid
+    lines = instances(engine, uid)
+    assert any("5kas.sudrf.ru  88-1/2026" in line for line in lines)
+    assert any("www.vsrf.ru  5-КГ26-1-К2" in line for line in lines)
+    assert any("stor_pdf/1" in line for line in lines)
+    assert instances(engine, "") == []
+
+    rows = {r["case_number"]: r["in_supreme"] for r in run(engine, Query()).rows}
+    assert rows["88-1/2026"] is True and rows["88-2/2026"] is False

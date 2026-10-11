@@ -424,6 +424,7 @@ def main(argv: list[str] | None = None) -> int:
                     case.c.judge,
                     case.c.result,
                     case.c.card_url,
+                    case.c.judicial_uid,
                     act_text.c.plain_text,
                 )
                 .select_from(
@@ -436,7 +437,16 @@ def main(argv: list[str] | None = None) -> int:
                 .limit(args.limit)
             ).all()
 
-        from .search import higher_texts
+        from .search import higher_texts, instances, uid_of_supreme_act
+
+        def print_instances(uid: str | None) -> None:
+            # Одно дело в разных инстанциях: что с ним стало выше и ниже.
+            # Одна строка — это само открытое производство, связи нет.
+            lines = instances(engine, uid)
+            if len([line for line in lines if not line.startswith("       ")]) > 1:
+                print(f"Дело в других инстанциях (УИД {uid}):")
+                print("\n".join(lines))
+                print()
 
         # ВС и КС — добором до `--limit`: номера у них свои («5-КГ24-12-К2»,
         # «57-П/2026») и с кассационными не пересекаются.
@@ -456,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{row.judge or '—'} · {row.result or '—'}")
             print(row.card_url or "")
             print()
+            print_instances(row.judicial_uid)
             print(row.plain_text)
             print()
         for row in higher:
@@ -463,6 +474,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{row['kind'] or '—'} · {' '.join((row['about'] or '—').split())[:200]}")
             print(row["url"])
             print()
+            if row["court_domain"] == "www.vsrf.ru":
+                print_instances(uid_of_supreme_act(engine, row["pdf_id"]))
             print(row["plain_text"])
             print()
         return 0
@@ -534,6 +547,7 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"  {row['case_number']:28} {row['court_domain']:16}"
                 f" {str(row['decision_date'] or '—'):12} {act}"
+                + (" · дошло до ВС" if row["in_supreme"] else "")
             )
             if row["judge"] or row["result"]:
                 print(f"       {row['judge'] or '—'} · {(row['result'] or '—')[:70]}")

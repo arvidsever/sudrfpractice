@@ -289,6 +289,41 @@ FACET_COLUMNS = {
 }
 
 
+def _by_date(connection, columns, query: Query) -> list[dict]:
+    """Свежие дела вперёд, нерассмотренные (без даты решения) — в самом конце.
+
+    Двумя запросами, а не `ORDER BY decision_date DESC NULLS LAST`: индекс
+    по дате идёт назад как `DESC NULLS FIRST`, и с `NULLS LAST` планировщик
+    не берёт его, а собирает все совпавшие дела и сортирует — на «норме
+    без слов» это 75 тысяч чтений таблицы вместо тысячи (0,3 с против 15 с
+    на живом корпусе).
+    """
+    dated = (
+        _narrow(select(*columns), query)
+        .where(case.c.decision_date.is_not(None))
+        .order_by(case.c.decision_date.desc(), case.c.id.desc())
+    )
+    rows = list(connection.execute(dated.limit(query.limit).offset(query.offset)))
+    if len(rows) < query.limit:
+        # Даты кончились: страница добирается нерассмотренными.
+        if rows:
+            dated_total = query.offset + len(rows)
+        else:
+            dated_total = connection.execute(
+                _narrow(select(func.count()).select_from(case), query).where(
+                    case.c.decision_date.is_not(None)
+                )
+            ).scalar_one()
+        rows += connection.execute(
+            _narrow(select(*columns), query)
+            .where(case.c.decision_date.is_(None))
+            .order_by(case.c.id.desc())
+            .limit(query.limit - len(rows))
+            .offset(max(query.offset - dated_total, 0))
+        )
+    return [dict(row._mapping) for row in rows]
+
+
 def _has_case_filters(query: Query) -> bool:
     return bool(
         query.courts
@@ -347,16 +382,9 @@ def run(engine: Engine, query: Query, *, with_facets: bool = False) -> Found:
         columns = (*COLUMNS, _snippet(query).label("snippet")) if query.text else COLUMNS
         if query.text and query.sort == "relevance":
             statement = _by_relevance(select(*columns), query)
+            rows = [dict(row._mapping) for row in connection.execute(statement)]
         else:
-            statement = (
-                _narrow(select(*columns), query)
-                # Свежие дела вперёд. `nulls last` — потому что нерассмотренные
-                # дела без даты решения иначе всплыли бы первыми.
-                .order_by(case.c.decision_date.desc().nulls_last(), case.c.id.desc())
-                .limit(query.limit)
-                .offset(query.offset)
-            )
-        rows = [dict(row._mapping) for row in connection.execute(statement)]
+            rows = _by_date(connection, columns, query)
 
         facets: dict[str, list[tuple[str, int]]] = {}
         if with_facets:

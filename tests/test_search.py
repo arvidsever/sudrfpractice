@@ -349,3 +349,21 @@ def test_count_cap_says_at_least_instead_of_counting_everything(db_settings) -> 
         2,
     )
     engine.dispose()
+
+
+def test_date_order_pages_through_undecided_tail(db_settings) -> None:
+    """Постраничный обход одним порядком: даты по убыванию, потом
+    нерассмотренные. Два запроса вместо `NULLS LAST` не должны терять
+    и дублировать строки на стыке страниц."""
+    engine = _seed(db_settings)
+
+    def numbers(offset: int, limit: int) -> list[str]:
+        found = run(engine, Query(limit=limit, offset=offset))
+        return [row["case_number"] for row in found.rows]
+
+    whole = numbers(0, 10)
+    assert whole[-1] == "88-5/2026"
+    for size in (1, 2, 3, 4):
+        paged = [n for offset in range(0, len(whole), size) for n in numbers(offset, size)]
+        assert paged == whole, size
+    engine.dispose()

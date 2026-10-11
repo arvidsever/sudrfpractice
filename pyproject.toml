@@ -27,6 +27,8 @@ dev = [
 api = [
     "mcp>=2,<3",
     "uvicorn>=0.30",
+    # Веб-интерфейс поиска (docs/web.md).
+    "fastapi>=0.115",
 ]
 # MLX ставится только на Apple Silicon, поэтому эмбеддинги — отдельная группа.
 embeddings = [

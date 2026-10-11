@@ -444,7 +444,7 @@ def main(argv: list[str] | None = None) -> int:
             # Одна строка — это само открытое производство, связи нет.
             lines = instances(engine, uid)
             if len([line for line in lines if not line.startswith("       ")]) > 1:
-                print(f"Дело в других инстанциях (УИД {uid}):")
+                print(f"Движение дела по инстанциям (УИД {uid}):")
                 print("\n".join(lines))
                 print()
 

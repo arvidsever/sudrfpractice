@@ -40,6 +40,9 @@ from ..search import (
     wants_higher,
 )
 
+#: «Найдено» считается до этого числа и дальше пишется «более».
+COUNT_CAP = 10_000
+
 PAGE = Path(__file__).with_name("index.html")
 
 #: Суды общей юрисдикции по инстанциям — те же домены, что в докстринге
@@ -141,11 +144,13 @@ def create_app(engine: Engine | None = None) -> FastAPI:
             decided_to=date_to,
             limit=limit,
             offset=offset,
+            count_cap=COUNT_CAP,
         )
         only_higher = bool(query.courts) and all(c in HIGHER for c in query.courts)
         rows: list[dict] = []
         higher_total = cases_total = 0
         texts_share = 0.0
+        capped = False
 
         # Над основной выдачей — акты ВС и КС, по пять, только на первой
         # странице: смешивать два источника под одним `offset` нельзя.
@@ -173,6 +178,7 @@ def create_app(engine: Engine | None = None) -> FastAPI:
         if not only_higher:
             found_cases = run(engine, query)
             cases_total = found_cases.total
+            capped = found_cases.capped
             texts_share = found_cases.texts_share if (rest or norms) else texts_share
             for row in found_cases.rows:
                 rows.append(
@@ -193,6 +199,7 @@ def create_app(engine: Engine | None = None) -> FastAPI:
         return {
             "parsed": parsed,
             "total": cases_total + higher_total,
+            "capped": capped,
             "cases_total": cases_total,
             "higher_total": higher_total,
             "rows": rows,

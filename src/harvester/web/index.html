@@ -220,7 +220,7 @@ function renderResults() {
   list.replaceChildren();
   const share = data.texts_share;
   list.append(el("div", { className: "cov" },
-    el("b", { style: "color:var(--ink)" }, plural(data.total, "акт", "акта", "актов")),
+    el("b", { style: "color:var(--ink)" }, (data.capped ? "более " : "") + plural(data.total, "акт", "акта", "актов")),
     share != null ? ` · текст разобран у ${Math.round(share * 100)}% актов корпуса: поиск по словам видит только их` : ""));
   for (const r of rows) list.append(card(r));
   if (data.has_more) list.append(el("button", { className: "more", type: "button", onclick: () => search(rows.filter((r) => r.ref.startsWith("c|")).length) }, "Показать ещё"));

@@ -181,6 +181,7 @@ async function route() {
 /* ---------- выдача ---------- */
 async function search(offset) {
   const mine = ++loading;
+  if (!offset) { $("#list").replaceChildren(el("div", { className: "cov" }, "Ищем…")); $("#empty").hidden = true; $("#cols").hidden = false; }
   try {
     const d = await api("/api/search", { q: state.q, instance: state.instance, sort: state.sort, offset });
     if (mine !== loading) return;

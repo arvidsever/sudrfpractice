@@ -23,8 +23,9 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi import Query as Param
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import Engine, create_engine, func, select
+from sqlalchemy.exc import DBAPIError
 
 from ..config import settings
 from ..db.schema import act, act_text, case, court
@@ -81,6 +82,22 @@ def create_app(engine: Engine | None = None) -> FastAPI:
     app.add_middleware(
         TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"]
     )
+
+    @app.exception_handler(DBAPIError)
+    def database_failed(_, exc: DBAPIError) -> JSONResponse:
+        # Потолок в 30 с — часть защиты (`_connect`), и упираются в него
+        # настоящие запросы: «норма без слов» на живом корпусе идёт дольше.
+        # Это ответ «слишком широко», а не поломка, и страница должна
+        # сказать, что сузить.
+        if "statement timeout" in str(exc):
+            return JSONResponse(
+                {
+                    "detail": "Запрос не уложился в 30 секунд. Сузьте его: "
+                    "добавьте слова, выберите инстанцию."
+                },
+                status_code=503,
+            )
+        return JSONResponse({"detail": "Корпус не ответил."}, status_code=502)
 
     titles: dict[str, str] = {}
 

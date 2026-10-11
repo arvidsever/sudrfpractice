@@ -103,3 +103,24 @@ def test_writes_are_impossible_on_the_default_connection() -> None:
     from harvester import web
 
     assert "default_transaction_read_only=on" in inspect.getsource(web._connect)
+
+
+def test_statement_timeout_is_an_answer_for_the_page(db_settings, monkeypatch) -> None:
+    """Потолок в 30 с достижим: страница получает объяснение, а не 500."""
+    from sqlalchemy.exc import OperationalError
+
+    import harvester.web as web
+
+    client, engine = _client(db_settings)
+
+    def too_slow(*_, **__):
+        raise OperationalError(
+            "select", {}, Exception("canceling statement due to statement timeout")
+        )
+
+    monkeypatch.setattr(web, "run", too_slow)
+    response = client.get("/api/search", params={"q": "неустойка", "instance": "kas"})
+
+    assert response.status_code == 503
+    assert "30 секунд" in response.json()["detail"]
+    engine.dispose()

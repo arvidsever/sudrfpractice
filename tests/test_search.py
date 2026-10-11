@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 
 from sqlalchemy import create_engine, insert
@@ -316,3 +317,53 @@ def test_one_case_is_followed_across_instances(db_settings) -> None:
 
     rows = {r["case_number"]: r["in_supreme"] for r in run(engine, Query()).rows}
     assert rows["88-1/2026"] is True and rows["88-2/2026"] is False
+
+
+def test_count_cap_says_at_least_instead_of_counting_everything(db_settings) -> None:
+    """Точный счёт по норме на живом корпусе — 8–12 с; потолок отвечает
+    «не меньше N» и обязан сказать, что упёрся, а не выдать N за итог."""
+    from sqlalchemy import insert, select
+
+    from harvester.db.schema import act, norm_ref
+
+    engine = _seed(db_settings)
+    _seed_texts(engine)
+    with engine.begin() as connection:
+        for act_id in connection.execute(select(act.c.id)).scalars().all():
+            connection.execute(
+                insert(norm_ref).values(
+                    source="act", doc_id=act_id, norms=["ГК:333"], parser_version=1
+                )
+            )
+
+    query = Query(norms=("ГК:333",))
+    assert run(engine, query).total == 2
+    exact = run(engine, replace(query, count_cap=5))
+    assert (exact.total, exact.capped) == (2, False), "под потолком счёт точный"
+    capped = run(engine, replace(query, count_cap=1))
+    assert (capped.total, capped.capped) == (1, True)
+    # И те же числа, когда есть фильтр по делам и счёт идёт другим путём.
+    with_court = replace(query, courts=("5kas.sudrf.ru",))
+    assert (run(engine, replace(with_court, count_cap=1)).total, run(engine, with_court).total) == (
+        1,
+        2,
+    )
+    engine.dispose()
+
+
+def test_date_order_pages_through_undecided_tail(db_settings) -> None:
+    """Постраничный обход одним порядком: даты по убыванию, потом
+    нерассмотренные. Два запроса вместо `NULLS LAST` не должны терять
+    и дублировать строки на стыке страниц."""
+    engine = _seed(db_settings)
+
+    def numbers(offset: int, limit: int) -> list[str]:
+        found = run(engine, Query(limit=limit, offset=offset))
+        return [row["case_number"] for row in found.rows]
+
+    whole = numbers(0, 10)
+    assert whole[-1] == "88-5/2026"
+    for size in (1, 2, 3, 4):
+        paged = [n for offset in range(0, len(whole), size) for n in numbers(offset, size)]
+        assert paged == whole, size
+    engine.dispose()

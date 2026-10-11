@@ -5,7 +5,9 @@ description = "Харвестер судебных актов кассацион
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28",
-    "selectolax>=0.3.27",
+    # Выше 1.0 убран движок Modest, на котором стоит `selectolax.parser`:
+    # CI на свежем окружении падал на импорте. Переход на lexbor — отдельная работа.
+    "selectolax>=0.3.27,<1.0",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "psycopg[binary]>=3.2",
@@ -27,6 +29,8 @@ dev = [
 api = [
     "mcp>=2,<3",
     "uvicorn>=0.30",
+    # Веб-интерфейс поиска (docs/web.md).
+    "fastapi>=0.115",
 ]
 # MLX ставится только на Apple Silicon, поэтому эмбеддинги — отдельная группа.
 embeddings = [

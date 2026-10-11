@@ -21,8 +21,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import date
 
-from sqlalchemy import Engine, Select, Text, and_, cast, func, literal_column, select
+from sqlalchemy import Engine, Select, Text, and_, cast, func, literal_column, select, text
 from sqlalchemy.dialects.postgresql import ARRAY, array
+from sqlalchemy.exc import OperationalError
 
 from .db.schema import (
     act,
@@ -69,11 +70,17 @@ class Query:
     with_act: bool | None = None
     limit: int = PAGE_SIZE
     offset: int = 0
+    #: Считать «найдено» не дальше этого числа. `None` — точно. Точный счёт
+    #: по норме — 75 тысяч случайных чтений таблицы дел, 8–12 с; «более
+    #: 10 000» юристу нужно не меньше, а отвечает в разы быстрее.
+    count_cap: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class Found:
-    total: int
+    #: `None` — счёт не уложился в `COUNT_BUDGET_MS`: слов, у которых десятки
+    #: тысяч актов, он идёт по полнотекстовому индексу десятки секунд.
+    total: int | None
     rows: list[dict]
     #: Доля собранного корпуса на момент запроса. Не украшение: без неё
     #: «найдено 12» читается как «в природе двенадцать».
@@ -83,6 +90,8 @@ class Found:
     #: видит четверть того, что видит поиск по реквизитам. Считается
     #: только когда о текстах и спрашивают.
     texts_share: float = 0.0
+    #: `total` упёрся в `Query.count_cap`: на деле найдено не меньше.
+    capped: bool = False
     facets: dict[str, list[tuple[str, int]]] = field(default_factory=dict)
 
 
@@ -100,9 +109,13 @@ def _tsquery(text: str):
     return func.websearch_to_tsquery(REGCONFIG, text)
 
 
-def _act_matches(query: Query) -> list:
+def _act_matches(query: Query, act_id=act_text.c.act_id) -> list:
     """Условия на текст акта: слова и нормы. Оба — про один и тот же акт:
-    «неустойка» в одном акте дела и «ГК:333» в другом — не совпадение."""
+    «неустойка» в одном акте дела и «ГК:333» в другом — не совпадение.
+
+    `act_id` — колонка, по которой ищется `norm_ref`: при одних нормах
+    таблица текстов не нужна вовсе (`norm_ref` и так есть только у акта
+    с текстом), и тогда это `act.id`."""
     conditions = []
     if query.text:
         conditions.append(TSV.op("@@")(_tsquery(query.text)))
@@ -111,7 +124,7 @@ def _act_matches(query: Query) -> list:
             select(literal_column("1"))
             .where(
                 norm_ref.c.source == "act",
-                norm_ref.c.doc_id == act_text.c.act_id,
+                norm_ref.c.doc_id == act_id,
                 norm_ref.c.norms.contains(cast(array(query.norms), ARRAY(Text))),
             )
             .exists()
@@ -126,6 +139,14 @@ def _matching_acts(query: Query):
     и соединение размножило бы дело по числу совпавших — «найдено 8 675»
     считало бы акты, выдавая их за дела.
     """
+    if not query.text:
+        # Одни нормы: без таблицы текстов планировщик идёт по свежим делам
+        # и останавливается на 25-м — 0,3 с вместо 13 с на живом корпусе.
+        return (
+            select(literal_column("1"))
+            .where(act.c.case_pk == case.c.id, *_act_matches(query, act.c.id))
+            .exists()
+        )
     return (
         select(literal_column("1"))
         .select_from(act.join(act_text, act_text.c.act_id == act.c.id))
@@ -224,8 +245,11 @@ def _by_relevance(statement: Select, query: Query) -> Select:
             # — иначе `_narrow` добавил бы второй обход через EXISTS.
             replace(query, text=None, norms=()),
         )
-        .where(and_(*_act_matches(query)))
-        .order_by(case.c.decision_date.desc().nulls_last())
+        .where(and_(*_act_matches(query)), case.c.decision_date.is_not(None))
+        # Без `NULLS LAST`: с ним индекс по дате не берётся (см. `_by_date`), и
+        # планировщик собирает все совпавшие акты, чтобы выбрать свежие.
+        # Нерассмотренные дела без даты в «самые свежие» и так не попадают.
+        .order_by(case.c.decision_date.desc())
         .limit(RANK_WINDOW)
         .subquery("recent")
     )
@@ -271,12 +295,101 @@ FACET_COLUMNS = {
 }
 
 
+def _by_date(connection, columns, query: Query) -> list[dict]:
+    """Свежие дела вперёд, нерассмотренные (без даты решения) — в самом конце.
+
+    Двумя запросами, а не `ORDER BY decision_date DESC NULLS LAST`: индекс
+    по дате идёт назад как `DESC NULLS FIRST`, и с `NULLS LAST` планировщик
+    не берёт его, а собирает все совпавшие дела и сортирует — на «норме
+    без слов» это 75 тысяч чтений таблицы вместо тысячи (0,3 с против 15 с
+    на живом корпусе).
+    """
+    dated = (
+        _narrow(select(*columns), query)
+        .where(case.c.decision_date.is_not(None))
+        .order_by(case.c.decision_date.desc(), case.c.id.desc())
+    )
+    rows = list(connection.execute(dated.limit(query.limit).offset(query.offset)))
+    if len(rows) < query.limit:
+        # Даты кончились: страница добирается нерассмотренными.
+        if rows:
+            dated_total = query.offset + len(rows)
+        else:
+            dated_total = connection.execute(
+                _narrow(select(func.count()).select_from(case), query).where(
+                    case.c.decision_date.is_not(None)
+                )
+            ).scalar_one()
+        rows += connection.execute(
+            _narrow(select(*columns), query)
+            .where(case.c.decision_date.is_(None))
+            .order_by(case.c.id.desc())
+            .limit(query.limit - len(rows))
+            .offset(max(query.offset - dated_total, 0))
+        )
+    return [dict(row._mapping) for row in rows]
+
+
+def _has_case_filters(query: Query) -> bool:
+    return bool(
+        query.courts
+        or query.cartoteki
+        or query.judges
+        or query.results
+        or query.lower_courts
+        or query.number
+        or query.decided_from
+        or query.decided_to
+        or query.with_act is not None
+    )
+
+
+#: Сколько ждать счёта, когда задан потолок. Дольше — значит совпадений
+#: очень много: «неустойка» без других условий считалась 38 с. Страница
+#: лучше скажет «много», чем заставит ждать цифры, которой не нужна точность.
+COUNT_BUDGET_MS = 4000
+
+
+def _count(connection, query: Query) -> tuple[int | None, bool]:
+    """Сколько дел отвечает запросу и упёрлись ли мы в `count_cap`.
+    `None` вместо числа — счёт не уложился в `COUNT_BUDGET_MS`."""
+    if query.count_cap is None:
+        return connection.execute(
+            _narrow(select(func.count()).select_from(case), query)
+        ).scalar_one(), False
+    limit = query.count_cap + 1
+    if (query.text or query.norms) and not _has_case_filters(query):
+        # Только условия на акт: дело считается по его актам, таблицу дел
+        # не трогаем — это 75 тысяч случайных чтений на ровном месте.
+        # ponytail: у дела с двумя совпавшими актами счёт чуть завышен; на
+        # потолке в 10 000 это не видно. Нужен точный — `count_cap=None`.
+        acts = act.join(act_text, act_text.c.act_id == act.c.id) if query.text else act
+        rows = select(act.c.case_pk).select_from(acts)
+        rows = rows.where(*_act_matches(query, act.c.id if not query.text else act_text.c.act_id))
+        inner = rows.limit(limit).subquery()
+    else:
+        inner = (
+            _narrow(select(literal_column("1")).select_from(case), query).limit(limit).subquery()
+        )
+    try:
+        connection.execute(text(f"SET LOCAL statement_timeout = {COUNT_BUDGET_MS}"))
+        counted = connection.execute(select(func.count()).select_from(inner)).scalar_one()
+    except OperationalError as exc:
+        if "statement timeout" not in str(exc):
+            raise
+        # Сессия после ошибки в транзакции негодна; откат вернёт и таймаут.
+        connection.rollback()
+        return None, True
+    # `SET LOCAL` живёт до конца транзакции, а остальные запросы выдачи
+    # идут в той же: возвращаем таймаут соединения, а не бюджет счёта.
+    connection.execute(text("RESET statement_timeout"))
+    return min(counted, query.count_cap), counted > query.count_cap
+
+
 def run(engine: Engine, query: Query, *, with_facets: bool = False) -> Found:
     """Выполнить запрос. `with_facets` считает счётчики по каждому фасету."""
     with engine.connect() as connection:
-        total = connection.execute(
-            _narrow(select(func.count()).select_from(case), query)
-        ).scalar_one()
+        total, capped = _count(connection, query)
         # Обе доли считаются только тогда, когда о них спросят. Полный
         # счёт `case` — 2,9 с на 2,75 млн строк, и платить их за число,
         # которое не покажут, незачем: при поиске по словам потолок задают
@@ -293,16 +406,9 @@ def run(engine: Engine, query: Query, *, with_facets: bool = False) -> Found:
         columns = (*COLUMNS, _snippet(query).label("snippet")) if query.text else COLUMNS
         if query.text and query.sort == "relevance":
             statement = _by_relevance(select(*columns), query)
+            rows = [dict(row._mapping) for row in connection.execute(statement)]
         else:
-            statement = (
-                _narrow(select(*columns), query)
-                # Свежие дела вперёд. `nulls last` — потому что нерассмотренные
-                # дела без даты решения иначе всплыли бы первыми.
-                .order_by(case.c.decision_date.desc().nulls_last(), case.c.id.desc())
-                .limit(query.limit)
-                .offset(query.offset)
-            )
-        rows = [dict(row._mapping) for row in connection.execute(statement)]
+            rows = _by_date(connection, columns, query)
 
         facets: dict[str, list[tuple[str, int]]] = {}
         if with_facets:
@@ -323,6 +429,7 @@ def run(engine: Engine, query: Query, *, with_facets: bool = False) -> Found:
         rows=rows,
         collected_share=collected_share,
         texts_share=texts_share,
+        capped=capped,
         facets=facets,
     )
 

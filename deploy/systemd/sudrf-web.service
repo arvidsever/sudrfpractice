@@ -1,0 +1,25 @@
+[Unit]
+Description=Веб-интерфейс поиска по корпусу (только 127.0.0.1, доступ через ssh -L)
+Documentation=file:///srv/sudrfpractice/docs/web.md
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=sudrf
+WorkingDirectory=/srv/sudrfpractice
+# Только чтение и не дольше 30 с на запрос задано и в коде (`web._connect`);
+# здесь то же на случай, если код однажды поменяют.
+Environment="PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=30000"
+# Слушает только локальный адрес: наружу его выводит туннель владельца,
+# а не сервис. Без журнала запросов — в нём были бы слова поиска.
+ExecStart=/srv/sudrfpractice/.venv/bin/python -m uvicorn --factory harvester.web:create_app --host 127.0.0.1 --port 8766 --no-access-log
+Restart=on-failure
+RestartSec=10
+MemoryMax=1G
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

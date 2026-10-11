@@ -70,6 +70,10 @@ _REFERENCE = re.compile(
 )
 #: Запрос пользователя свободнее текста акта: «333 ГК», «ст 333 гк рф».
 _QUERY = re.compile(rf"(?P<numbers>{_LIST})\s*(?:{_CODE})(?!\w)", re.IGNORECASE)
+#: То же вместе со словом «ст.»/«статья» перед номером — чтобы вырезать его из слов.
+_QUERY_WITH_WORD = re.compile(
+    rf"(?:\b(?:стать\w*|ст\.?)\s*)?{_QUERY.pattern}(?:\s+РФ\b)?", re.IGNORECASE
+)
 
 
 def _keys(match: re.Match) -> set[str]:
@@ -94,6 +98,16 @@ def parse_query(value: str) -> list[str]:
     for match in _QUERY.finditer(value):
         found |= _keys(match)
     return sorted(found)
+
+
+def split_query(value: str) -> tuple[list[str], str]:
+    """Строка поиска как есть: нормы из неё и то, что осталось.
+
+    Нужна интерфейсу с одной строкой: «ст. 333 ГК снижение неустойки» —
+    это и норма, и слова. Норма, вырезанная из слов, иначе осталась бы
+    в полнотекстовом запросе и сузила его цифрами «333» без смысла.
+    """
+    return parse_query(value), " ".join(_QUERY_WITH_WORD.sub(" ", value).split())
 
 
 #: Откуда читать тексты: источник → таблица и её ключ.

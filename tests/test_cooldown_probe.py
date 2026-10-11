@@ -64,11 +64,30 @@ def test_broken_probe_does_not_break_waiting(monkeypatch) -> None:
         _COOLDOWNS.pop(domain, None)
 
 
-def test_probe_asks_without_arming_the_back_off() -> None:
+def test_probe_asks_without_arming_the_back_off(db_settings) -> None:
     """Проба обязана идти с `arm_back_off=False` и `ignore_cooldown=True`:
     иначе отказ на пробе поставил бы новую получасовую паузу, и стук по
     суду превратился бы в вечное ожидание."""
+    from sqlalchemy import create_engine, insert
+
     from harvester import cards
+    from harvester.db.schema import case
+
+    # Проба берёт карточку из очереди. Без дела в базе она отвечает «брать
+    # нечего» и до запроса не доходит — на пустой базе CI тест видел пустоту
+    # и падал, а на рабочей базе мака проходил случайно.
+    engine = create_engine(db_settings.database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            insert(case).values(
+                court_domain="5kas.sudrf.ru",
+                cartoteka_id="g3",
+                case_id="1",
+                case_uid="uid-1",
+                case_number="88-1/2026",
+            )
+        )
+    engine.dispose()
 
     seen: dict[str, object] = {}
 
@@ -88,10 +107,7 @@ def test_probe_asks_without_arming_the_back_off() -> None:
     original = cards_module.open_client
     cards_module.open_client = lambda *a, **k: FakeClient()
     try:
-        probe = cards.make_probe("5kas.sudrf.ru")
-        probe()
-    except Exception:
-        pass
+        cards.make_probe("5kas.sudrf.ru", settings=db_settings)()
     finally:
         cards_module.open_client = original
 

@@ -124,3 +124,23 @@ def test_statement_timeout_is_an_answer_for_the_page(db_settings, monkeypatch) -
     assert response.status_code == 503
     assert "30 секунд" in response.json()["detail"]
     engine.dispose()
+
+
+def test_unknown_total_is_null_not_an_invented_number(db_settings, monkeypatch) -> None:
+    """Счёт, не уложившийся в бюджет, — «много», а не 0 и не потолок."""
+    from dataclasses import replace
+
+    import harvester.web as web
+
+    client, engine = _client(db_settings)
+    real = web.run
+
+    def unknown(*args, **kwargs):
+        return replace(real(*args, **kwargs), total=None, capped=True)
+
+    monkeypatch.setattr(web, "run", unknown)
+    body = client.get("/api/search", params={"q": "неустойка", "instance": "kas"}).json()
+
+    assert body["total"] is None and body["capped"] is True
+    assert body["rows"], "строки при этом показываются"
+    engine.dispose()

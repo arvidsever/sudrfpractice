@@ -21,8 +21,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import date
 
-from sqlalchemy import Engine, Select, Text, and_, cast, func, literal_column, select
+from sqlalchemy import Engine, Select, Text, and_, cast, func, literal_column, select, text
 from sqlalchemy.dialects.postgresql import ARRAY, array
+from sqlalchemy.exc import OperationalError
 
 from .db.schema import (
     act,
@@ -77,7 +78,9 @@ class Query:
 
 @dataclass(frozen=True, slots=True)
 class Found:
-    total: int
+    #: `None` — счёт не уложился в `COUNT_BUDGET_MS`: слов, у которых десятки
+    #: тысяч актов, он идёт по полнотекстовому индексу десятки секунд.
+    total: int | None
     rows: list[dict]
     #: Доля собранного корпуса на момент запроса. Не украшение: без неё
     #: «найдено 12» читается как «в природе двенадцать».
@@ -341,8 +344,15 @@ def _has_case_filters(query: Query) -> bool:
     )
 
 
-def _count(connection, query: Query) -> tuple[int, bool]:
-    """Сколько дел отвечает запросу и упёрлись ли мы в `count_cap`."""
+#: Сколько ждать счёта, когда задан потолок. Дольше — значит совпадений
+#: очень много: «неустойка» без других условий считалась 38 с. Страница
+#: лучше скажет «много», чем заставит ждать цифры, которой не нужна точность.
+COUNT_BUDGET_MS = 4000
+
+
+def _count(connection, query: Query) -> tuple[int | None, bool]:
+    """Сколько дел отвечает запросу и упёрлись ли мы в `count_cap`.
+    `None` вместо числа — счёт не уложился в `COUNT_BUDGET_MS`."""
     if query.count_cap is None:
         return connection.execute(
             _narrow(select(func.count()).select_from(case), query)
@@ -361,7 +371,18 @@ def _count(connection, query: Query) -> tuple[int, bool]:
         inner = (
             _narrow(select(literal_column("1")).select_from(case), query).limit(limit).subquery()
         )
-    counted = connection.execute(select(func.count()).select_from(inner)).scalar_one()
+    try:
+        connection.execute(text(f"SET LOCAL statement_timeout = {COUNT_BUDGET_MS}"))
+        counted = connection.execute(select(func.count()).select_from(inner)).scalar_one()
+    except OperationalError as exc:
+        if "statement timeout" not in str(exc):
+            raise
+        # Сессия после ошибки в транзакции негодна; откат вернёт и таймаут.
+        connection.rollback()
+        return None, True
+    # `SET LOCAL` живёт до конца транзакции, а остальные запросы выдачи
+    # идут в той же: возвращаем таймаут соединения, а не бюджет счёта.
+    connection.execute(text("RESET statement_timeout"))
     return min(counted, query.count_cap), counted > query.count_cap
 
 

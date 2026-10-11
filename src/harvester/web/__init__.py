@@ -148,9 +148,11 @@ def create_app(engine: Engine | None = None) -> FastAPI:
         )
         only_higher = bool(query.courts) and all(c in HIGHER for c in query.courts)
         rows: list[dict] = []
-        higher_total = cases_total = 0
+        higher_total = 0
+        cases_total: int | None = 0
         texts_share = 0.0
         capped = False
+        case_rows: list = []
 
         # Над основной выдачей — акты ВС и КС, по пять, только на первой
         # странице: смешивать два источника под одним `offset` нельзя.
@@ -180,7 +182,8 @@ def create_app(engine: Engine | None = None) -> FastAPI:
             cases_total = found_cases.total
             capped = found_cases.capped
             texts_share = found_cases.texts_share if (rest or norms) else texts_share
-            for row in found_cases.rows:
+            case_rows = found_cases.rows
+            for row in case_rows:
                 rows.append(
                     {
                         "ref": f"c|{row['court_domain']}|{row['case_number']}",
@@ -198,12 +201,14 @@ def create_app(engine: Engine | None = None) -> FastAPI:
                 )
         return {
             "parsed": parsed,
-            "total": cases_total + higher_total,
+            # `None` — счёт «слишком много, считать не стали»: страница
+            # пишет «много», а не выдумывает число.
+            "total": None if cases_total is None else cases_total + higher_total,
             "capped": capped,
             "cases_total": cases_total,
             "higher_total": higher_total,
             "rows": rows,
-            "has_more": not only_higher and offset + limit < cases_total,
+            "has_more": not only_higher and len(case_rows) == limit,
             # Доля актов, чей текст разобран, — потолок поиска по словам.
             # Для поиска только по реквизитам она не имеет смысла.
             "texts_share": texts_share if (rest or norms) else None,

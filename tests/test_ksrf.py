@@ -67,3 +67,35 @@ def test_catching_up_stops_at_the_first_familiar_page(db_settings, tmp_path) -> 
 
     assert new == 3, "три новых решения на первых двух страницах"
     assert asked == [1, 2, 3], "третья целиком знакомая — дальше не идём"
+
+
+def test_layout_mode_keeps_words_whole() -> None:
+    """Набранный в ширину текст обычный режим pypdf режет посреди слова;
+    `layout` собирает слова по координатам. Проверяем на своём PDF:
+    каждая буква слова выведена отдельной командой со своим смещением."""
+    import io
+
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    from harvester.vsrf import pdf_text
+
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=300, height=100)
+    font = DictionaryObject(
+        {
+            NameObject("/Type"): NameObject("/Font"),
+            NameObject("/Subtype"): NameObject("/Type1"),
+            NameObject("/BaseFont"): NameObject("/Helvetica"),
+        }
+    )
+    page[NameObject("/Resources")] = DictionaryObject(
+        {NameObject("/Font"): DictionaryObject({NameObject("/F1"): writer._add_object(font)})}
+    )
+    stream = DecodedStreamObject()
+    stream.set_data(b"BT /F1 12 Tf 20 50 Td [(cou) -40 (rt)] TJ 60 0 Td (ruling) Tj ET")
+    page[NameObject("/Contents")] = writer._add_object(stream)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+
+    assert pdf_text(buffer.getvalue(), layout=True).split() == ["court", "ruling"]

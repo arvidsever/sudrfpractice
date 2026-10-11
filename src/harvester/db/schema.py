@@ -346,6 +346,8 @@ ksrf_decision_text = Table(
     ),
     Column("raw_page_id", BigInteger, ForeignKey("raw_page.id"), nullable=True),
     Column("plain_text", Text, nullable=False),
+    #: Способ извлечения: 1 — обычный режим pypdf (рвёт слова), 2 — `layout`.
+    Column("text_version", SmallInteger, nullable=False, server_default="1"),
     # tsv — generated-колонка в миграции, как у act_text.
 )
 

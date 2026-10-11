@@ -127,7 +127,11 @@ def main(argv: list[str] | None = None) -> int:
     supreme.add_argument("--max-hours", type=float, default=6.0)
 
     constitutional = sub.add_parser("ksrf", help="КС РФ: список решений, затем тексты PDF")
-    constitutional.add_argument("--only", choices=["list", "texts"], help="один этап")
+    constitutional.add_argument(
+        "--only",
+        choices=["list", "texts", "retext"],
+        help="один этап; retext — переизвлечь тексты из PDF в сырье, без сети",
+    )
     constitutional.add_argument("--max-hours", type=float, default=6.0)
 
     warn = sub.add_parser("alert", help="учесть исход задания и написать, если упало дважды")
@@ -366,6 +370,17 @@ def main(argv: list[str] | None = None) -> int:
 
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
         logging.getLogger("httpx").setLevel(logging.WARNING)
+        if args.only == "retext":
+            # Без сети и без замка платформы: читает только сырьё и базу.
+            from sqlalchemy import create_engine
+
+            from .config import settings
+            from .ksrf import retext
+            from .s3 import S3Store
+
+            result = retext(create_engine(settings.database_url), settings.raw_root, S3Store())
+            print(f"текстов переизвлечено {result['done']}, не прочитано {result['unread']}")
+            return 0
         try:
             claim_harvest_lock(platform="ksrf")
         except AlreadyHarvesting as exc:

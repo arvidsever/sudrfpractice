@@ -41,6 +41,8 @@ BASE = "https://www.ksrf.ru"
 DOMAIN = "www.ksrf.ru"
 ROOT_CA = Path(__file__).parent / "certs" / "russian_trusted_root_ca.pem"
 MAX_RUN_HOURS = 6.0
+#: Способ извлечения текста: 2 — режим `layout` (миграция 0016).
+TEXT_VERSION = 2
 
 _PDF = re.compile(r"/doc/KSRFDecision(\d+)\.pdf")
 _DATE = re.compile(r"(\d{2})\.(\d{2})\.(\d{4})")
@@ -237,12 +239,12 @@ def fetch_texts(client, engine: Engine, store: RawStore, *, until: float | None 
                 continue
             raw_id = _save_raw(engine, store, response, "ksrf_pdf")
             try:
-                text = pdf_text(response.content)
+                text = pdf_text(response.content, layout=True)
             except Exception as exc:  # noqa: BLE001 — один битый PDF не роняет сбор
                 log.warning("%s: текст не вынут: %s", pdf_id, exc)
                 text = ""
             statement = insert(ksrf_decision_text).values(
-                pdf_id=pdf_id, raw_page_id=raw_id, plain_text=text
+                pdf_id=pdf_id, raw_page_id=raw_id, plain_text=text, text_version=TEXT_VERSION
             )
             with engine.begin() as connection:
                 connection.execute(
@@ -251,6 +253,7 @@ def fetch_texts(client, engine: Engine, store: RawStore, *, until: float | None 
                         set_={
                             "plain_text": statement.excluded.plain_text,
                             "raw_page_id": statement.excluded.raw_page_id,
+                            "text_version": statement.excluded.text_version,
                         },
                     )
                 )
@@ -260,6 +263,69 @@ def fetch_texts(client, engine: Engine, store: RawStore, *, until: float | None 
                     .values(text_fetched_at=datetime.now().astimezone())
                 )
             fetched += 1
+
+
+def retext(engine: Engine, raw_root: Path, store, *, batch: int = 500) -> dict[str, int]:
+    """Переизвлечь тексты, полученные старым способом, из PDF в сырье.
+
+    К сайту КС не ходит: PDF лежат на диске или в S3. Нормы у обновлённых
+    решений сбрасываются — их заново разберёт `harvester norms`.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    import zstandard
+    from sqlalchemy import text as sql
+
+    from .archive import PREFIX_RAW
+
+    result = {"done": 0, "unread": 0}
+    skipped: set[int] = set()
+
+    def load(row) -> tuple[int, str | None]:
+        local = raw_root / row.path
+        try:
+            blob = local.read_bytes() if local.exists() else store.get_bytes(PREFIX_RAW + row.path)
+            return row.pdf_id, pdf_text(zstandard.ZstdDecompressor().decompress(blob), layout=True)
+        except Exception as exc:  # noqa: BLE001 — один PDF не роняет проход
+            log.warning("%s: %s", row.pdf_id, exc)
+            return row.pdf_id, None
+
+    pending = sql(
+        """
+        SELECT t.pdf_id, r.path FROM ksrf_decision_text t
+        JOIN raw_page r ON r.id = t.raw_page_id
+        WHERE t.text_version < :version ORDER BY t.pdf_id LIMIT :limit
+        """
+    )
+    with ThreadPoolExecutor(4) as pool:
+        while True:
+            with engine.connect() as connection:
+                rows = connection.execute(
+                    pending, {"version": TEXT_VERSION, "limit": batch + len(skipped)}
+                ).all()
+            rows = [row for row in rows if row.pdf_id not in skipped]
+            if not rows:
+                break
+            done = list(pool.map(load, rows))
+            skipped |= {pk for pk, text in done if text is None}
+            fresh = [{"pk": pk, "text": text} for pk, text in done if text is not None]
+            if fresh:
+                with engine.begin() as connection:
+                    connection.execute(
+                        sql(
+                            "UPDATE ksrf_decision_text SET plain_text = :text,"
+                            " text_version = :version WHERE pdf_id = :pk"
+                        ),
+                        [row | {"version": TEXT_VERSION} for row in fresh],
+                    )
+                    connection.execute(
+                        sql("DELETE FROM norm_ref WHERE source = 'ksrf' AND doc_id = :pk"),
+                        [{"pk": row["pk"]} for row in fresh],
+                    )
+            result["done"] += len(fresh)
+            result["unread"] = len(skipped)
+            log.info("КС, тексты заново: %s", result)
+    return result
 
 
 class Unreachable(RuntimeError):

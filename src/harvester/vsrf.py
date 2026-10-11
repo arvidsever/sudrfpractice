@@ -249,14 +249,28 @@ def parse_claims(content: str) -> list[ClaimRow]:
     return rows
 
 
-def pdf_text(content: bytes) -> str:
+def pdf_text(content: bytes, *, layout: bool = False) -> str:
     """Текстовый слой PDF. Акты ВС — сканы с распознанным текстом поверх,
     и вынимается он целиком (docs/vsrf.md). Пустая строка — слоя нет:
-    это кандидат на распознавание потом, а не «акта нет»."""
+    это кандидат на распознавание потом, а не «акта нет».
+
+    `layout` — режим pypdf, собирающий слова по координатам на странице.
+    Нужен PDF Конституционного Суда: набранный в ширину текст обычный режим
+    режет посреди слова («суде й»). У ВС оба режима дают одно и то же,
+    поэтому там остаётся прежний — и уже собранные тексты не расходятся
+    с новыми.
+    """
     from pypdf import PdfReader
 
     reader = PdfReader(io.BytesIO(content))
-    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    if layout:
+        pages = (page.extract_text(extraction_mode="layout") or "" for page in reader.pages)
+        # Режим воспроизводит вёрстку пробелами: выключка в ширину даёт
+        # по пять пробелов между словами. Вёрстка не нужна, слова — нужны.
+        text = "\n".join(" ".join(line.split()) for page in pages for line in page.splitlines())
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    else:
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
     # PostgreSQL не хранит NUL в text, а распознанный слой их иногда несёт.
     return text.replace("\x00", "")
 

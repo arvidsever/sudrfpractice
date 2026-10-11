@@ -1,5 +1,5 @@
 [Unit]
-Description=Веб-интерфейс поиска по корпусу (только 127.0.0.1, доступ через ssh -L)
+Description=Веб-интерфейс поиска по корпусу (127.0.0.1; снаружи — через Caddy, с паролем)
 Documentation=file:///srv/sudrfpractice/docs/web.md
 After=network-online.target postgresql.service
 
@@ -7,12 +7,18 @@ After=network-online.target postgresql.service
 Type=simple
 User=sudrf
 WorkingDirectory=/srv/sudrfpractice
+# Хеш пароля, ключ сессии и публичный адрес: /etc/sudrf/web.env, 600 root.
+# Читает его systemd, а не сервис; создаёт владелец (docs/web.md).
+EnvironmentFile=/etc/sudrf/web.env
+# Без хеша в файле сервис не запустится, а не откроется всем.
+Environment=SUDRF_WEB_REQUIRE_AUTH=1
 # Только чтение и не дольше 30 с на запрос задано и в коде (`web._connect`);
 # здесь то же на случай, если код однажды поменяют.
 Environment="PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=30000"
-# Слушает только локальный адрес: наружу его выводит туннель владельца,
-# а не сервис. Без журнала запросов — в нём были бы слова поиска.
-ExecStart=/srv/sudrfpractice/.venv/bin/python -m uvicorn --factory harvester.web:create_app --host 127.0.0.1 --port 8766 --no-access-log
+# Слушает только локальный адрес: наружу его выводит Caddy (TLS и порты 80/443),
+# а не сервис. `--proxy-headers` — чтобы счёт неудачных входов шёл по адресу
+# посетителя, а не по адресу Caddy. Без журнала запросов — в нём были бы слова поиска.
+ExecStart=/srv/sudrfpractice/.venv/bin/python -m uvicorn --factory harvester.web:create_app --host 127.0.0.1 --port 8766 --no-access-log --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=on-failure
 RestartSec=10
 MemoryMax=1G

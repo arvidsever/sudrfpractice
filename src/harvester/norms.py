@@ -28,7 +28,7 @@ from sqlalchemy import Engine, text
 
 log = logging.getLogger("harvester.norms")
 
-PARSER_VERSION = 1
+PARSER_VERSION = 2
 
 #: Кодекс → как его называют в текстах. Длинные названия раньше коротких:
 #: «Гражданский процессуальный кодекс» не должен совпасть как «Гражданский кодекс».
@@ -56,7 +56,11 @@ _CODES = [
 ]
 
 _NUMBER = r"\d+(?:\.\d+)*"
-_LIST = rf"{_NUMBER}(?:\s*(?:,|и|или|-|–|—)\s*{_NUMBER})*"
+#: Уточнение в скобках после номера — так пишет Конституционный Суд:
+#: «статьи 19 (часть 1), 40 (части 1 и 3) и 55 (часть 3) Конституции».
+#: Без него у шестой части решений КС не находилось ни одной нормы.
+_ITEM = rf"{_NUMBER}(?:\s*\([^()]{{0,60}}\))?"
+_LIST = rf"{_ITEM}(?:\s*(?:,|и|или|-|–|—)\s*{_ITEM})*"
 _CODE = "|".join(f"(?P<c{i}>{pattern})" for i, (_, pattern) in enumerate(_CODES))
 
 #: «статьи 330, 333 ГК РФ», «ст.ст. 15 и 1064 Гражданского кодекса», «ст.333 ГК».
@@ -70,7 +74,9 @@ _QUERY = re.compile(rf"(?P<numbers>{_LIST})\s*(?:{_CODE})(?!\w)", re.IGNORECASE)
 
 def _keys(match: re.Match) -> set[str]:
     code = next(name for i, (name, _) in enumerate(_CODES) if match.group(f"c{i}") is not None)
-    return {f"{code}:{number}" for number in re.findall(_NUMBER, match.group("numbers"))}
+    # Номера частей и пунктов внутри скобок — не статьи.
+    numbers = re.sub(r"\([^()]*\)", " ", match.group("numbers"))
+    return {f"{code}:{number}" for number in re.findall(_NUMBER, numbers)}
 
 
 def extract(plain_text: str) -> list[str]:

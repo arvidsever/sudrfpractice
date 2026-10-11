@@ -5,6 +5,10 @@ Description=Выгрузка сырья и дампа базы в S3, затем
 Type=oneshot
 User=sudrf
 WorkingDirectory=/srv/sudrfpractice
+# Ссылки на нормы у текстов, появившихся с прошлого захода (docs: roadmap 6.2).
+# Здесь, а не в сборщиках: разбор читает только базу, и трём сборщикам
+# не нужно знать о нём. «-» — его неудача выгрузку не отменяет.
+ExecStart=-/srv/sudrfpractice/.venv/bin/python -m harvester norms
 ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester archive
 ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester dump
 # Чистка последней и в том же задании, а не своим таймером: так она

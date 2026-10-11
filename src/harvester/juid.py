@@ -49,7 +49,7 @@ def backfill(
     store,
     *,
     batch: int = 5000,
-    workers: int = 16,
+    workers: int = 10,  # столько соединений держит пул boto3
     limit: int | None = None,
 ) -> dict[str, int]:
     """Дозаполнить УИД. Прерванный проход продолжается сам: очередь —

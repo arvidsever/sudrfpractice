@@ -21,7 +21,7 @@ from .config import Settings
 from .config import settings as default_settings
 from .directories import cartoteka as find_cartoteka
 from .directories import court as find_court
-from .directories import courts
+from .directories import harvested_courts
 from .harvest import harvest_listing
 from .http import (
     CourtOnCooldown,
@@ -178,7 +178,9 @@ def run_queue(
     if released:
         log.info("возвращено в очередь после прошлого прогона: %d окон", released)
 
-    domains = [c.domain for c in courts() if only_courts is None or c.domain in only_courts]
+    domains = [
+        c.domain for c in harvested_courts() if only_courts is None or c.domain in only_courts
+    ]
     totals, stop = RunTotals(), threading.Event()
 
     threads = [

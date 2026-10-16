@@ -1,0 +1,112 @@
+{
+  "source": "SudrfKit/Cartoteka.swift (subject) — Sudrf 1d0306f, перенесено скриптом 16.10.2026. Только действующие картотеки: исторические кассация и надзор (до 2013/2019) не берутся. К id добавлено «s»: g2/u2/p2 уже заняты апелляцией АСОЮ с теми же таблицами.",
+  "level": "subject",
+  "cartoteki": [
+    {
+      "id": "u1s",
+      "title": "Уголовное, 1-я инстанция (суд субъекта)",
+      "prefixes": [
+        "2"
+      ],
+      "delo_id": "1540006",
+      "new": "0",
+      "delo_table": "u1_case",
+      "case_number_field": "u1_case__CASE_NUMBERSS",
+      "uid_field": "u1_case__JUDICIAL_UIDSS",
+      "name_field": "U1_DEFENDANT__NAMESS"
+    },
+    {
+      "id": "u2s",
+      "title": "Уголовное, апелляция (суд субъекта)",
+      "prefixes": [
+        "22",
+        "22к"
+      ],
+      "delo_id": "4",
+      "new": "4",
+      "delo_table": "u2_case",
+      "case_number_field": "u2_case__CASE_NUMBERSS",
+      "uid_field": "u2_case__JUDICIAL_UIDSS",
+      "name_field": "U2_DEFENDANT__NAMESS"
+    },
+    {
+      "id": "g1s",
+      "title": "Гражданское, 1-я инстанция (суд субъекта)",
+      "prefixes": [
+        "3"
+      ],
+      "delo_id": "1540005",
+      "new": "0",
+      "delo_table": "g1_case",
+      "case_number_field": "g1_case__CASE_NUMBERSS",
+      "uid_field": "g1_case__JUDICIAL_UIDSS",
+      "name_field": "G1_PARTS__NAMESS"
+    },
+    {
+      "id": "g2s",
+      "title": "Гражданское, апелляция (суд субъекта)",
+      "prefixes": [
+        "33"
+      ],
+      "delo_id": "5",
+      "new": "5",
+      "delo_table": "g2_case",
+      "case_number_field": "g2_case__CASE_NUMBERSS",
+      "uid_field": "g2_case__JUDICIAL_UIDSS",
+      "name_field": "G2_PARTS__NAMESS"
+    },
+    {
+      "id": "p1s",
+      "title": "КАС, 1-я инстанция (суд субъекта)",
+      "prefixes": [
+        "3а"
+      ],
+      "delo_id": "41",
+      "new": "0",
+      "delo_table": "p1_case",
+      "case_number_field": "p1_case__CASE_NUMBERSS",
+      "uid_field": "p1_case__JUDICIAL_UIDSS",
+      "name_field": "P1_PARTS__NAMESS"
+    },
+    {
+      "id": "p2s",
+      "title": "КАС, апелляция (суд субъекта)",
+      "prefixes": [
+        "33а"
+      ],
+      "delo_id": "42",
+      "new": "0",
+      "delo_table": "p2_case",
+      "case_number_field": "p2_case__CASE_NUMBERSS",
+      "uid_field": "p2_case__JUDICIAL_UIDSS",
+      "name_field": "P2_PARTS__NAMESS"
+    },
+    {
+      "id": "adm1s",
+      "title": "АП: жалобы на постановления (суд субъекта)",
+      "prefixes": [
+        "12"
+      ],
+      "delo_id": "1502001",
+      "new": "0",
+      "delo_table": "adm1_case",
+      "case_number_field": "adm1_case__CASE_NUMBERSS",
+      "uid_field": "adm1_case__JUDICIAL_UIDSS",
+      "name_field": "adm1_parts__NAMESS"
+    },
+    {
+      "id": "adm2s",
+      "title": "АП: жалобы на решения по жалобам (суд субъекта)",
+      "prefixes": [
+        "21",
+        "7"
+      ],
+      "delo_id": "1513001",
+      "new": "0",
+      "delo_table": "adm2_case",
+      "case_number_field": "adm2_case__CASE_NUMBERSS",
+      "uid_field": "adm2_case__JUDICIAL_UIDSS",
+      "name_field": "adm2_parts__NAMESS"
+    }
+  ]
+}

@@ -56,7 +56,7 @@ def test_court_on_pause_is_waited_out_not_dropped(monkeypatch) -> None:
         return result
 
     monkeypatch.setattr(cards, "collect_cards", fake)
-    monkeypatch.setattr("harvester.directories.courts", lambda: [_court("1kas.sudrf.ru")])
+    monkeypatch.setattr("harvester.directories.harvested_courts", lambda: [_court("1kas.sudrf.ru")])
     try:
         results = cards.sweep_all()
     finally:
@@ -87,7 +87,7 @@ def test_empty_pass_does_not_kill_the_thread_at_once(monkeypatch) -> None:
 
     monkeypatch.setattr(cards, "collect_cards", fake)
     monkeypatch.setattr(cards, "EMPTY_ROUND_PAUSE_SECONDS", 0.01)
-    monkeypatch.setattr("harvester.directories.courts", lambda: [_court("1kas.sudrf.ru")])
+    monkeypatch.setattr("harvester.directories.harvested_courts", lambda: [_court("1kas.sudrf.ru")])
 
     results = cards.sweep_all()
 
@@ -105,7 +105,7 @@ def test_thread_leaves_after_enough_empty_rounds(monkeypatch) -> None:
 
     monkeypatch.setattr(cards, "collect_cards", fake)
     monkeypatch.setattr(cards, "EMPTY_ROUND_PAUSE_SECONDS", 0.01)
-    monkeypatch.setattr("harvester.directories.courts", lambda: [_court("1kas.sudrf.ru")])
+    monkeypatch.setattr("harvester.directories.harvested_courts", lambda: [_court("1kas.sudrf.ru")])
 
     cards.sweep_all()
 
@@ -124,7 +124,7 @@ def test_run_is_bounded_in_time(monkeypatch) -> None:
         return _result(domain, collected=1, remaining=99)
 
     monkeypatch.setattr(cards, "collect_cards", fake)
-    monkeypatch.setattr("harvester.directories.courts", lambda: [_court("1kas.sudrf.ru")])
+    monkeypatch.setattr("harvester.directories.harvested_courts", lambda: [_court("1kas.sudrf.ru")])
 
     cards.sweep_all(max_hours=0)
 
@@ -144,7 +144,7 @@ def test_every_court_gets_its_own_thread(monkeypatch) -> None:
 
     monkeypatch.setattr(cards, "collect_cards", fake)
     monkeypatch.setattr(
-        "harvester.directories.courts",
+        "harvester.directories.harvested_courts",
         lambda: [_court("1kas.sudrf.ru"), _court("2kas.sudrf.ru"), _court("3kas.sudrf.ru")],
     )
 
@@ -164,7 +164,7 @@ def test_queue_run_ends_even_if_a_court_never_answers(monkeypatch, db_settings) 
         return False
 
     monkeypatch.setattr(run_module, "wait_out_cooldown", asleep)
-    monkeypatch.setattr(run_module, "courts", lambda: [_court("4ap.sudrf.ru")])
+    monkeypatch.setattr(run_module, "harvested_courts", lambda: [_court("4ap.sudrf.ru")])
 
     started = time.monotonic()
     run_module.run_queue(settings=db_settings, max_hours=0.0005)  # ~2 с

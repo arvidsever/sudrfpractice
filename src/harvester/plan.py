@@ -21,7 +21,7 @@ from sqlalchemy.dialects.postgresql import insert
 from .config import Settings
 from .config import settings as default_settings
 from .db.schema import harvest_task
-from .directories import cartoteki_for, courts
+from .directories import cartoteki_for, harvested_courts
 from .urls import DateAxis
 
 #: Кассационные суды ОСЮ работают с 01.10.2019 — раньше этой даты дел нет.
@@ -82,7 +82,7 @@ def fill_queue(
             "window_to": window.end,
             "status": "pending",
         }
-        for court in courts()
+        for court in harvested_courts()
         if only_courts is None or court.domain in only_courts
         for cartoteka in cartoteki_for(court)
         if only_cartoteki is None or cartoteka.id in only_cartoteki

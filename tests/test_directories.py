@@ -63,7 +63,7 @@ def test_each_court_gets_only_cartoteki_of_its_level() -> None:
     портал ответит формой или пустотой, и недосбор промолчит. Все переборы
     «суд × картотека» обязаны идти через `cartoteki_for`."""
     assert {c.id for c in cartoteki_for(court("1ap.sudrf.ru"))} == {"g2", "u2", "p2"}
-    assert len(cartoteki()) == 7
+    assert len(cartoteki()) == 15  # 4 кассационные, 3 апелляционные, 8 судов субъектов
 
 
 def test_appeal_listing_uses_the_courts_own_short_pair() -> None:
@@ -73,3 +73,29 @@ def test_appeal_listing_uses_the_courts_own_short_pair() -> None:
     assert cartoteka("u2").listing_delo_id == "4"
     assert cartoteka("p2").listing_delo_id == "42"
     assert cartoteka("p2").doc_prefix == "P2_DOCUMENT__"
+
+
+def test_regional_courts_are_listed_but_not_harvested_until_enabled(monkeypatch) -> None:
+    """87 судов субъектов есть в справочнике — по ним строятся адреса и ищется
+    суд, — но обход по ним включается отдельно: под них нужен диск."""
+    from harvester.config import settings
+    from harvester.directories import cartoteki_for, court, courts, harvested_courts
+
+    regional = court("oblsud.kln.sudrf.ru")
+    assert regional.level == "subject"
+    assert {k.id for k in cartoteki_for(regional)} == {
+        "u1s",
+        "u2s",
+        "g1s",
+        "g2s",
+        "p1s",
+        "p2s",
+        "adm1s",
+        "adm2s",
+    }
+    assert all(k.doc_prefix for k in cartoteki_for(regional))
+    assert sum(c.level == "subject" for c in courts()) == 87
+    assert regional not in harvested_courts()
+
+    monkeypatch.setattr(settings, "harvest_levels", ("cassation", "appeal", "subject"))
+    assert regional in harvested_courts()

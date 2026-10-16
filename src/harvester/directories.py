@@ -61,6 +61,14 @@ LISTING_DELO_ID_BY_TABLE: dict[str, str] = {
     "g2_case": "5",
     "u2_case": "4",
     "p2_case": "42",
+    # Суды субъектов: пары из реестра `Sudrf`. Длинные они или короткие —
+    # проверяется разведкой (docs/oblsud.md): у КСОЮ короткая пара молча
+    # лишала выдачу ссылок на акты.
+    "u1_case": "1540006",
+    "g1_case": "1540005",
+    "p1_case": "41",
+    "adm1_case": "1502001",
+    "adm2_case": "1513001",
 }
 
 DOC_PREFIX_BY_TABLE: dict[str, str] = {
@@ -71,6 +79,13 @@ DOC_PREFIX_BY_TABLE: dict[str, str] = {
     "g2_case": "G2_DOCUMENT__",
     "u2_case": "U2_DOCUMENT__",
     "p2_case": "P2_DOCUMENT__",
+    # Суды субъектов, из форм поиска (разведка 16.10.2026). У КоАП префикс
+    # строчными — так он стоит в форме, и портал регистр различает.
+    "u1_case": "U1_DOCUMENT__",
+    "g1_case": "G1_DOCUMENT__",
+    "p1_case": "P1_DOCUMENT__",
+    "adm1_case": "adm1_document__",
+    "adm2_case": "adm2_document__",
 }
 
 
@@ -140,8 +155,8 @@ def _load(name: str) -> dict:
 
 #: Справочники по уровням: кассация выгружена из `Sudrf` утилитой,
 #: апелляция перенесена из того же реестра вручную (см. поле `source`).
-COURT_FILES = ("courts.json", "courts-appeal.json")
-CARTOTEKA_FILES = ("cartoteki.json", "cartoteki-appeal.json")
+COURT_FILES = ("courts.json", "courts-appeal.json", "courts-subject.json")
+CARTOTEKA_FILES = ("cartoteki.json", "cartoteki-appeal.json", "cartoteki-subject.json")
 
 
 @lru_cache(maxsize=1)
@@ -179,6 +194,15 @@ def cartoteki() -> tuple[Cartoteka, ...]:
         for data in [_load(name)]
         for item in data["cartoteki"]
     )
+
+
+def harvested_courts() -> tuple[Court, ...]:
+    """Суды, которые обходит сбор: уровни из `settings.harvest_levels`.
+    `courts()` — весь справочник: по нему ищется суд по домену и строится
+    выдача, а сбор идёт только здесь."""
+    from .config import settings
+
+    return tuple(item for item in courts() if item.level in settings.harvest_levels)
 
 
 def cartoteki_for(court: Court) -> tuple[Cartoteka, ...]:

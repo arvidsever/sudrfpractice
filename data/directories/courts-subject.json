@@ -1,0 +1,615 @@
+{
+  "source": "SudrfKit/CourtDirectory.swift (subjectCourts) — Sudrf 1d0306f, перенесено скриптом 16.10.2026; без судов вне sudrf.ru: nnoblsud.ru, www.mos-gorsud.ru",
+  "level": "subject",
+  "courts": [
+    {
+      "domain": "vs.adg.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Адыгея",
+      "regions": []
+    },
+    {
+      "domain": "vs.ralt.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Алтай",
+      "regions": []
+    },
+    {
+      "domain": "vs.bkr.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Башкортостан",
+      "regions": []
+    },
+    {
+      "domain": "vs.bur.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Бурятия",
+      "regions": []
+    },
+    {
+      "domain": "vs.dag.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Дагестан",
+      "regions": []
+    },
+    {
+      "domain": "vs.ing.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Ингушетия",
+      "regions": []
+    },
+    {
+      "domain": "vs.kbr.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Кабардино-Балкарской Республики",
+      "regions": []
+    },
+    {
+      "domain": "vs.kalm.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Калмыкия",
+      "regions": []
+    },
+    {
+      "domain": "vs.kchr.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Карачаево-Черкесской Республики",
+      "regions": []
+    },
+    {
+      "domain": "vs.kar.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Карелия",
+      "regions": []
+    },
+    {
+      "domain": "vs--komi.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Коми",
+      "regions": []
+    },
+    {
+      "domain": "vs.krm.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Крым",
+      "regions": []
+    },
+    {
+      "domain": "vs.mari.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Марий Эл",
+      "regions": []
+    },
+    {
+      "domain": "vs.mor.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Мордовия",
+      "regions": []
+    },
+    {
+      "domain": "vs.jak.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Саха (Якутия)",
+      "regions": []
+    },
+    {
+      "domain": "vs.wlk.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Северная Осетия - Алания",
+      "regions": []
+    },
+    {
+      "domain": "vs.tat.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Татарстан",
+      "regions": []
+    },
+    {
+      "domain": "vs.tva.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Тыва",
+      "regions": []
+    },
+    {
+      "domain": "vs.udm.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Удмуртской Республики",
+      "regions": []
+    },
+    {
+      "domain": "vs.hak.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Республики Хакасия",
+      "regions": []
+    },
+    {
+      "domain": "vs.chn.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Чеченской Республики",
+      "regions": []
+    },
+    {
+      "domain": "vs.chv.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный суд Чувашской Республики",
+      "regions": []
+    },
+    {
+      "domain": "kraevoy.alt.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Алтайский краевой суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.cht.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Забайкальский краевой суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.kam.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Камчатский краевой суд",
+      "regions": []
+    },
+    {
+      "domain": "kraevoi.krd.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Краснодарский краевой суд",
+      "regions": []
+    },
+    {
+      "domain": "kraevoy.krk.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Красноярский краевой суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.perm.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Пермский краевой суд",
+      "regions": []
+    },
+    {
+      "domain": "kraevoy.prm.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Приморский краевой суд",
+      "regions": []
+    },
+    {
+      "domain": "kraevoy.stv.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Ставропольский краевой суд",
+      "regions": []
+    },
+    {
+      "domain": "kraevoy.hbr.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Хабаровский краевой суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.amr.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Амурский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.arh.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Архангельский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.ast.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Астраханский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.blg.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Белгородский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.brj.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Брянский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.wld.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Владимирский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.vol.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Волгоградский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.vld.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Вологодский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.vrn.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Воронежский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.iwn.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Ивановский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.irk.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Иркутский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.kln.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Калининградский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.klg.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Калужский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.kmr.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Кемеровский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.kir.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Кировский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.kst.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Костромской областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.krg.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Курганский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.krs.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Курский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.lo.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Ленинградский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.lpk.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Липецкий областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.mag.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Магаданский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.mo.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Московский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.mrm.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Мурманский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.nvg.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Новгородский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.nsk.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Новосибирский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.oms.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Омский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.orb.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Оренбургский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.orl.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Орловский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.pnz.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Пензенский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.psk.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Псковский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.ros.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Ростовский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.riz.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Рязанский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.sam.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Самарский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.sar.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Саратовский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.sah.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Сахалинский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.svd.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Свердловский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.sml.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Смоленский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.tmb.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Тамбовский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.twr.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Тверской областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.tms.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Томский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.tula.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Тульский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.tum.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Тюменский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.uln.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Ульяновский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "gs.sev.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Севастопольский городской суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.zpr.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Запорожский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "vs.dnr.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный Суд Донецкой Народной Республики",
+      "regions": []
+    },
+    {
+      "domain": "vs.lnr.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Верховный Суд Луганской Народной Республики",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.hrs.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Херсонский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.chel.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Челябинский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.jrs.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Ярославский областной суд",
+      "regions": []
+    },
+    {
+      "domain": "sankt-peterburgsky.spb.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Санкт-Петербургский городской суд",
+      "regions": []
+    },
+    {
+      "domain": "os.brb.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Суд Еврейской автономной области",
+      "regions": []
+    },
+    {
+      "domain": "sud.nao.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Суд Ненецкого автономного округа",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.hmao.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Суд Ханты-Мансийского автономного округа - Югры",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.chao.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Суд Чукотского автономного округа",
+      "regions": []
+    },
+    {
+      "domain": "oblsud.ynao.sudrf.ru",
+      "level": "subject",
+      "number": null,
+      "title": "Суд Ямало-Ненецкого автономного округа",
+      "regions": []
+    }
+  ]
+}

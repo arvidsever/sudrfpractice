@@ -331,9 +331,9 @@ def sweep_all(
     Ограничение стоит здесь, а не в systemd, потому что `RuntimeMaxSec`
     к `Type=oneshot` не применяется вовсе — оно там молча ничего не делало.
     """
-    from .directories import courts
+    from .directories import harvested_courts
 
-    domains = [item.domain for item in courts()]
+    domains = [item.domain for item in harvested_courts()]
     totals: dict[str, CardSweepResult] = {}
     guard = threading.Lock()
     stop = threading.Event()

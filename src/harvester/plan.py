@@ -91,10 +91,12 @@ def fill_queue(
 
     with engine.begin() as connection:
         before = connection.execute(select(func.count()).select_from(harvest_task)).scalar_one()
-        if rows:
+        # Частями: у PostgreSQL потолок 65 535 параметров на запрос, а 87 судов
+        # субъектов × 8 картотек × 22 месяца — это 15 тысяч окон по 6 полей.
+        for i in range(0, len(rows), 5000):
             connection.execute(
                 insert(harvest_task)
-                .values(rows)
+                .values(rows[i : i + 5000])
                 .on_conflict_do_nothing(constraint="uq_task_window")
             )
         after = connection.execute(select(func.count()).select_from(harvest_task)).scalar_one()

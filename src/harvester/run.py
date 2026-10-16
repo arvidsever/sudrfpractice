@@ -65,6 +65,10 @@ class RunTotals:
             self.throttled += int(throttled)
 
 
+#: Сколько судов обходится одновременно (см. `run_queue`).
+PARALLEL_COURTS = 8
+
+
 def _work_one_court(
     engine,
     domain: str,
@@ -183,14 +187,26 @@ def run_queue(
     ]
     totals, stop = RunTotals(), threading.Event()
 
+    # Суды обходятся не все разом, а по `PARALLEL_COURTS`: у каждого
+    # обхода свои подключения к базе, а их у сервера 30 на всех. 16.10.2026
+    # прогон 87 судов субъектов открыл 87 потоков и за минуту завалил 5 700
+    # окон отказом «remaining connection slots are reserved». Темп от этого
+    # не страдает: все суды ГАС делят одну паузу в 1,5 с, и восьми потоков
+    # хватает, чтобы держать её занятой, даже когда часть судов тормозит.
+    pending = list(domains)
+    guard = threading.Lock()
+
+    def worker() -> None:
+        while not stop.is_set():
+            with guard:
+                if not pending:
+                    return
+                domain = pending.pop(0)
+            _work_one_court(engine, domain, totals, settings, bulk, limit_per_court, stop)
+
     threads = [
-        threading.Thread(
-            target=_work_one_court,
-            args=(engine, domain, totals, settings, bulk, limit_per_court, stop),
-            name=f"обход-{domain}",
-            daemon=True,
-        )
-        for domain in domains
+        threading.Thread(target=worker, name=f"обход-{i}", daemon=True)
+        for i in range(min(PARALLEL_COURTS, len(domains)))
     ]
 
     deadline = threading.Timer(max_hours * 3600, stop.set)

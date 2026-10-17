@@ -214,7 +214,9 @@ def test_registration_is_off_unless_enabled(tmp_path, chain) -> None:
 
     response = _register(client, chain.jws())
 
-    assert response.status_code == 403 and "выключена" in response.json()["detail"]
+    assert response.status_code == 404 and "выключена" in response.json()["detail"], (
+        "404, чтобы приложение спрятало вкладку, а не показало отказ"
+    )
     from harvester.web import _registration_from_env
 
     assert _registration_from_env({}) is None, "по умолчанию тестеры не регистрируются"

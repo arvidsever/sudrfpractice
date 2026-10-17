@@ -236,8 +236,11 @@ def create_app(
     async def register(request: Request) -> JSONResponse:
         """Токен установки по подписанной Apple записи `AppTransaction`."""
         if registration is None or tokens is None:
+            # 404, а не 403: приложение отличает «регистрации здесь нет» от
+            # отказа записи и в этом случае прячет вкладку, а не показывает
+            # тестеру ошибку. Так же отвечает и сервер без этого адреса.
             return JSONResponse(
-                {"detail": "Регистрация установок на этом сервере выключена."}, status_code=403
+                {"detail": "Регистрация установок на этом сервере выключена."}, status_code=404
             )
         client = _client_address(request)
         if auth and auth.blocked(client):

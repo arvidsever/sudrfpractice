@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 from dataclasses import replace
@@ -47,7 +48,9 @@ from ..search import (
 #: «Найдено» считается до этого числа и дальше пишется «более».
 COUNT_CAP = 10_000
 
+from . import appstore  # noqa: E402
 from . import auth as authlib  # noqa: E402
+from . import tokens as tokenlib  # noqa: E402
 
 PAGE = Path(__file__).with_name("index.html")
 
@@ -92,21 +95,83 @@ CSP = (
 )
 
 
+def _tokens_from_env(environ=os.environ) -> tokenlib.Store | None:
+    """Хранилище токенов приложения; без пути — токенов нет вовсе."""
+    path = environ.get("SUDRF_WEB_TOKENS_PATH", "").strip()
+    return tokenlib.Store(path) if path else None
+
+
+def _registration_from_env(environ=os.environ) -> appstore.Policy | None:
+    """Регистрация установок из TestFlight — только явным включением:
+    она открывает корпус с ФИО каждому, кто поставил сборку по ссылке."""
+    if environ.get("SUDRF_WEB_APP_REGISTRATION") != "1":
+        return None
+    apple_id = environ.get("SUDRF_WEB_APP_APPLE_ID", "").strip()
+    return appstore.Policy(
+        bundle_id=environ.get("SUDRF_WEB_APP_BUNDLE_ID", "ru.sudrf.app").strip(),
+        environments=frozenset(
+            e.strip()
+            for e in environ.get("SUDRF_WEB_APP_ENVIRONMENTS", "Sandbox,Production").split(",")
+            if e.strip()
+        ),
+        app_apple_id=int(apple_id) if apple_id else None,
+    )
+
+
+def _client_address(request: Request) -> str:
+    return request.client.host if request.client else "?"
+
+
 def create_app(
-    engine: Engine | None = None, auth: authlib.Auth | None | object = _FROM_ENV
+    engine: Engine | None = None,
+    auth: authlib.Auth | None | object = _FROM_ENV,
+    tokens: tokenlib.Store | None | object = _FROM_ENV,
+    registration: appstore.Policy | None | object = _FROM_ENV,
+    limiter: tokenlib.Limiter | None = None,
 ) -> FastAPI:
     engine = engine or _connect()
     if auth is _FROM_ENV:
         auth = authlib.from_env()
+    if tokens is _FROM_ENV:
+        tokens = _tokens_from_env()
+    if registration is _FROM_ENV:
+        registration = _registration_from_env()
+    limiter = limiter or tokenlib.Limiter()
     app = FastAPI(title="Судебная практика", docs_url=None, redoc_url=None)
+
+    async def by_token(request: Request, call_next, token: str):
+        """Приложение Sudrf: токен вместо cookie, со своим лимитом.
+        Неверный токен идёт в тот же счёт неудач, что и неверный пароль."""
+        client = _client_address(request)
+        if auth.blocked(client):
+            return JSONResponse({"detail": "Слишком много попыток. Подождите."}, status_code=429)
+        found = await run_in_threadpool(tokens.check, token) if tokens else None
+        if found is None:
+            auth.failed(client)
+            return JSONResponse({"detail": "Токен не принят."}, status_code=401)
+        wait = limiter.acquire(found.id)
+        if wait is not None:
+            return JSONResponse(
+                {"detail": "Слишком много запросов. Подождите немного."},
+                status_code=429,
+                headers={"Retry-After": str(wait)},
+            )
+        try:
+            return await call_next(request)
+        finally:
+            limiter.release(found.id)
 
     @app.middleware("http")
     async def gate(request: Request, call_next):
-        """Пароль до первой страницы: без cookie открыт только `/login`."""
+        """Пароль до первой страницы: без cookie открыт только `/login`.
+        Приложение Sudrf ходит в `/api/*` с токеном, регистрация открыта."""
         path = request.url.path
-        if (
+        bearer = request.headers.get("authorization", "")
+        if auth and path.startswith("/api/") and bearer[:7].lower() == "bearer ":
+            response = await by_token(request, call_next, bearer[7:].strip())
+        elif (
             auth
-            and path not in ("/login", "/logout")
+            and path not in ("/login", "/logout", "/api/register")
             and not auth.valid_cookie(request.cookies.get(authlib.COOKIE))
         ):
             if path.startswith("/api/"):
@@ -166,6 +231,43 @@ def create_app(
         response = RedirectResponse("/login", status_code=303)
         response.delete_cookie(authlib.COOKIE)
         return response
+
+    @app.post("/api/register", include_in_schema=False)
+    async def register(request: Request) -> JSONResponse:
+        """Токен установки по подписанной Apple записи `AppTransaction`."""
+        if registration is None or tokens is None:
+            # 404, а не 403: приложение отличает «регистрации здесь нет» от
+            # отказа записи и в этом случае прячет вкладку, а не показывает
+            # тестеру ошибку. Так же отвечает и сервер без этого адреса.
+            return JSONResponse(
+                {"detail": "Регистрация установок на этом сервере выключена."}, status_code=404
+            )
+        client = _client_address(request)
+        if auth and auth.blocked(client):
+            return JSONResponse({"detail": "Слишком много попыток. Подождите."}, status_code=429)
+        body = await request.body()
+        try:
+            if len(body) > appstore.MAX_JWS + 1024:
+                raise ValueError
+            jws = json.loads(body)["app_transaction"]
+        except (ValueError, KeyError, TypeError):
+            return JSONResponse({"detail": "Нужно поле app_transaction."}, status_code=400)
+        try:
+            found = await run_in_threadpool(appstore.verify, jws, registration)
+        except appstore.Rejected as exc:
+            if auth:
+                auth.failed(client)
+            return JSONResponse({"detail": str(exc)}, status_code=403)
+        if tokens.active_count(found.holder) >= tokenlib.MAX_PER_HOLDER:
+            return JSONResponse(
+                {
+                    "detail": f"На этот Apple ID уже зарегистрировано {tokenlib.MAX_PER_HOLDER}"
+                    " установки. Попросите владельца отозвать лишнюю."
+                },
+                status_code=409,
+            )
+        token = tokens.issue("install", found.holder, found.environment)
+        return JSONResponse({"token": token})
 
     @app.get("/api/session")
     def session() -> dict:

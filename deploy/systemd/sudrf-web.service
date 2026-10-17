@@ -12,6 +12,12 @@ WorkingDirectory=/srv/sudrfpractice
 EnvironmentFile=/etc/sudrf/web.env
 # Без хеша в файле сервис не запустится, а не откроется всем.
 Environment=SUDRF_WEB_REQUIRE_AUTH=1
+# Токены приложения Sudrf: SQLite в собственной папке сервиса, остальная
+# файловая система read-only (ProtectSystem=strict). Регистрация установок
+# из TestFlight включается в web.env строкой SUDRF_WEB_APP_REGISTRATION=1.
+StateDirectory=sudrf-web
+StateDirectoryMode=0700
+Environment=SUDRF_WEB_TOKENS_PATH=/var/lib/sudrf-web/tokens.sqlite3
 # Только чтение и не дольше 30 с на запрос задано и в коде (`web._connect`);
 # здесь то же на случай, если код однажды поменяют.
 Environment="PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=30000"

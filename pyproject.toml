@@ -31,6 +31,8 @@ api = [
     "uvicorn>=0.30",
     # Веб-интерфейс поиска (docs/web.md).
     "fastapi>=0.115",
+    # Проверка подписи Apple у записи App Store для токенов приложения Sudrf.
+    "cryptography>=43",
 ]
 # MLX ставится только на Apple Silicon, поэтому эмбеддинги — отдельная группа.
 embeddings = [

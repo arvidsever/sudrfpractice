@@ -27,7 +27,8 @@ def test_military_court_has_no_number_and_no_regions() -> None:
 
 
 def test_captcha_courts_match_the_live_survey() -> None:
-    """КСОЮ проверены 06.08.2026, АСОЮ — 03.10.2026, по полю `captcha` в форме."""
+    """КСОЮ проверены 06.08.2026, АСОЮ — 03.10.2026, по полю `captcha` в форме;
+    суды субъектов — по воротам капчи в первую ночь индекса, 16–17.10.2026."""
     assert {
         "1kas.sudrf.ru",
         "3kas.sudrf.ru",
@@ -35,7 +36,8 @@ def test_captcha_courts_match_the_live_survey() -> None:
         "6kas.sudrf.ru",
         "2ap.sudrf.ru",
         "vap.sudrf.ru",
-    } == CAPTCHA_COURTS
+    } == {c for c in CAPTCHA_COURTS if court(c).level != "subject"}
+    assert sum(court(c).level == "subject" for c in CAPTCHA_COURTS) == 16
     assert court("2kas.sudrf.ru").has_captcha is False
     assert court("3kas.sudrf.ru").has_captcha is True
 

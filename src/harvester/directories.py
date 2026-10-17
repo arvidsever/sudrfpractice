@@ -35,6 +35,27 @@ CAPTCHA_COURTS: frozenset[str] = frozenset(
         # его читает; у военного мешали только баннеры (см. extract_challenge).
         "2ap.sudrf.ru",
         "vap.sudrf.ru",
+        # Суды субъектов: ответили воротами капчи в первую ночь индекса
+        # (16–17.10.2026), хотя бы раз — фраза «проверочный код» однозначна.
+        "vs.hak.sudrf.ru",
+        "vs.mor.sudrf.ru",
+        "vs.udm.sudrf.ru",
+        "vs.krm.sudrf.ru",
+        "vs.kchr.sudrf.ru",
+        "oblsud.perm.sudrf.ru",
+        "oblsud.kam.sudrf.ru",
+        "kraevoy.alt.sudrf.ru",
+        "kraevoy.prm.sudrf.ru",
+        "oblsud.arh.sudrf.ru",
+        "oblsud.hmao.sudrf.ru",
+        "oblsud.oms.sudrf.ru",
+        "oblsud.mrm.sudrf.ru",
+        "oblsud.mo.sudrf.ru",
+        "oblsud.chel.sudrf.ru",
+        # Краснодарский краевой ворот не показал, но все 42 окна — пустая
+        # форма вместо выдачи на первой странице: так капча-суд отвечает
+        # на истёкший токен (см. CourtClient.get_passing_captcha).
+        "kraevoi.krd.sudrf.ru",
     }
 )
 

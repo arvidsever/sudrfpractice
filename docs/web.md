@@ -56,6 +56,11 @@ open http://127.0.0.1:8766
   запускается, а не открывается всем.
 * Журнала запросов нет — ни в сервисе, ни в Caddy: в адресах слова поиска.
 
+**Адрес: https://sudrfapp.ru** (A-запись на `157.22.194.96`, сертификат Let's
+Encrypt — Caddy). Имя `arvidsever.fvds.ru` для этого не годится: публичный
+DNS отдаёт для него чужой адрес (`155.212.173.41`), а на общий домен `fvds.ru`
+у Let's Encrypt исчерпан недельный лимит выпуска.
+
 Хеш и ключ делает владелец в своём терминале, пароль в чат и репозиторий
 не попадает:
 
@@ -64,7 +69,7 @@ cd /srv/sudrfpractice && .venv/bin/python -m harvester.web
 # напечатает SUDRF_WEB_PASSWORD_HASH=… и SUDRF_WEB_SESSION_KEY=…
 install -d -m 700 /etc/sudrf
 # в /etc/sudrf/web.env (600, root): обе строки и
-#   SUDRF_WEB_HOSTS=arvidsever.fvds.ru
+#   SUDRF_WEB_HOSTS=sudrfapp.ru
 ```
 
 Что остаётся риском: общий пароль один на всех, кто его знает, а корпус

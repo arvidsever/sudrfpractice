@@ -86,7 +86,7 @@ install -d -m 700 /etc/sudrf
 
   ```bash
   cd /srv/sudrfpractice
-  sudo -u sudrf SUDRF_WEB_TOKENS_PATH=/var/lib/sudrf-web/tokens.sqlite3 \
+  runuser -u sudrf -- env SUDRF_WEB_TOKENS_PATH=/var/lib/sudrf-web/tokens.sqlite3 \
     .venv/bin/python -m harvester.web tokens issue owner
   ```
 

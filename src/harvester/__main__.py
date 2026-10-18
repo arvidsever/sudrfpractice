@@ -120,8 +120,9 @@ def main(argv: list[str] | None = None) -> int:
     supreme = sub.add_parser("vsrf", help="ВС РФ: выдача актов и «дел», затем тексты PDF")
     supreme.add_argument(
         "--only",
-        choices=["acts", "claims", "listings", "texts"],
-        help="один этап; listings — обе выдачи без текстов",
+        choices=["acts", "claims", "listings", "texts", "reparse"],
+        help="один этап; listings — обе выдачи без текстов;"
+        " reparse — переразобрать выдачи из сырья, без сети",
     )
     supreme.add_argument("--from", dest="start", help="дд.мм.гггг, по умолчанию 01.01.2005")
     supreme.add_argument("--max-hours", type=float, default=6.0)
@@ -347,6 +348,17 @@ def main(argv: list[str] | None = None) -> int:
 
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
         logging.getLogger("httpx").setLevel(logging.WARNING)
+        if args.only == "reparse":
+            # Без сети и без замка платформы: читает только сырьё и базу.
+            from sqlalchemy import create_engine
+
+            from .config import settings
+            from .s3 import S3Store
+            from .vsrf import reparse
+
+            result = reparse(create_engine(settings.database_url), settings.raw_root, S3Store())
+            print(f"страниц переразобрано {result['pages']}, не прочитано {result['unread']}")
+            return 0
         try:
             # Свой замок платформы: ВС не делит бюджет с ГАС и не ждёт свод КСОЮ.
             # Тексты — под отдельным замком и идут вторым потоком рядом

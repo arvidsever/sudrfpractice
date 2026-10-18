@@ -101,13 +101,12 @@ def listing_page(html: str) -> ListingPage:
 
 
 def _segments(node: Node) -> list[str]:
-    out = []
-    for item in node.traverse(include_text=True):
-        if item.tag == "-text":
-            text = " ".join((item.text_content or "").split())
-            if text:
-                out.append(text)
-    return out
+    """Текстовые ноды строки — только её собственные. `traverse()` из
+    selectolax идёт и по следующим соседям узла: до 19.10.2026 в строку
+    попадал текст всех строк ниже, и акт СКЭС без «По иску:» получал
+    предмет соседнего административного дела."""
+    texts = (" ".join(t.split()) for t in node.text(separator="\x00").split("\x00"))
+    return [t for t in texts if t]
 
 
 #: Подписи, у которых значение бывает в той же текстовой ноде:
@@ -437,6 +436,58 @@ def _store_claims(engine: Engine, case_type: str, rows: list[ClaimRow]) -> None:
                 index_elements=["claim_id"], set_={k: statement.excluded[k] for k in keep}
             )
         )
+
+
+def reparse(engine: Engine, raw_root, store, *, batch: int = 200) -> dict[str, int]:
+    """Переразобрать выдачи из сырья и обновить строки актов и «дел».
+
+    К сайту ВС не ходит. Страницы идут от старых к новым, так что
+    последнее слово за свежей выдачей. Нужен после правки разбора
+    (19.10.2026: строка подхватывала поля строк ниже).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from urllib.parse import parse_qs, urlsplit
+
+    import zstandard
+    from sqlalchemy import text as sql
+
+    from .archive import PREFIX_RAW
+
+    result = {"pages": 0, "unread": 0}
+
+    def load(row):
+        local = raw_root / row.path
+        try:
+            blob = local.read_bytes() if local.exists() else store.get_bytes(PREFIX_RAW + row.path)
+            return row, listing_page(zstandard.ZstdDecompressor().decompress(blob).decode("utf-8"))
+        except Exception as exc:  # noqa: BLE001 — одна страница не роняет проход
+            log.warning("%s: %s", row.url, exc)
+            return row, None
+
+    pages = sql(
+        "SELECT id, url, path FROM raw_page WHERE content_kind = 'vsrf_listing'"
+        " AND id > :after ORDER BY id LIMIT :limit"
+    )
+    after = 0
+    with ThreadPoolExecutor(4) as pool:
+        while True:
+            with engine.connect() as connection:
+                rows = connection.execute(pages, {"after": after, "limit": batch}).all()
+            if not rows:
+                break
+            after = rows[-1].id
+            for row, page in pool.map(load, rows):
+                if page is None:
+                    result["unread"] += 1
+                    continue
+                url = urlsplit(row.url)
+                source = "claims" if "/claims" in url.path else "acts"
+                case_type = parse_qs(url.query)["caseType"][0]
+                _, parse, store_rows, _ = SOURCES[source]
+                store_rows(engine, case_type, parse(page.content))
+                result["pages"] += 1
+            log.info("переразобрано %d страниц, id до %d", result["pages"], after)
+    return result
 
 
 SOURCES = {

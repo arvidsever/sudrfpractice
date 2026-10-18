@@ -502,3 +502,63 @@ def test_economic_texts_wait_for_their_date(db_settings, tmp_path) -> None:
         "stor_pdf/3",
         "stor_pdf_ec/2",
     ]
+
+
+def test_row_does_not_borrow_fields_from_the_rows_below() -> None:
+    """19.10.2026: акт СКЭС без «По иску:» получал предмет следующей строки."""
+    item = (
+        '<div class="CaseStyle_case_item__x">'
+        '<a href="/lk/practice/stor_pdf_ec/1">Определение</a>'
+        "<span>Судебная коллегия:</span><span>Судебная коллегия по экономическим спорам</span>"
+        "</div>"
+        '<div class="CaseStyle_case_item__x">'
+        '<a href="/lk/practice/stor_pdf/2">Решение</a>'
+        "<span>По иску:</span><span>об оспаривании регламента</span>"
+        "</div>"
+    )
+    economic, other = parse_acts(item)
+
+    assert economic.subject is None
+    assert other.subject == "об оспаривании регламента"
+
+
+def test_reparse_rewrites_rows_from_raw_without_the_site(db_settings, tmp_path) -> None:
+    """После правки разбора строки чинятся из сырья, а не новым обходом сайта."""
+    import json
+
+    from sqlalchemy import create_engine, select, update
+
+    from harvester.db.schema import vsrf_act
+    from harvester.raw import RawStore
+    from harvester.vsrf import reparse, sweep_listing
+
+    content = ECONOMIC_ROW + _page("vsrf_acts.html").content
+    data = {
+        "props": {
+            "pageProps": {
+                "initialItemsData": {"content": content, "totalElements": 3, "last": True}
+            }
+        }
+    }
+    page = f'<script id="__NEXT_DATA__">{json.dumps(data, ensure_ascii=False)}</script>'
+    engine = create_engine(db_settings.database_url)
+    sweep_listing(
+        "acts",
+        _Client(page),
+        engine,
+        RawStore(tmp_path),
+        start=date(2026, 9, 1),
+        today=date(2026, 9, 30),
+    )
+    with engine.begin() as connection:
+        connection.execute(update(vsrf_act).where(vsrf_act.c.economic).values(subject="чужой"))
+
+    result = reparse(engine, tmp_path, store=None)
+
+    with engine.connect() as connection:
+        subject = connection.execute(
+            select(vsrf_act.c.subject).where(vsrf_act.c.economic)
+        ).scalar_one()
+    engine.dispose()
+    assert result["unread"] == 0 and result["pages"] > 0
+    assert subject is None

@@ -170,3 +170,31 @@ def test_queue_run_ends_even_if_a_court_never_answers(monkeypatch, db_settings) 
     run_module.run_queue(settings=db_settings, max_hours=0.0005)  # ~2 с
 
     assert time.monotonic() - started < 10, "прогон обязан кончиться по сроку"
+
+
+def test_paused_court_goes_to_the_back_and_the_thread_takes_another(
+    monkeypatch, db_settings
+) -> None:
+    """18.10.2026: семь потоков из восьми полдня ждали судов на паузе.
+    Суд на паузе уходит в конец очереди, поток берёт следующий."""
+    from harvester import run as run_module
+
+    order: list[str] = []
+    paused = {"9ap.sudrf.ru"}  # первый в очереди и на паузе — один раз
+
+    def work(engine, domain, totals, settings, bulk, limit, stop, *, yield_on_pause=False):
+        order.append(domain)
+        if domain in paused:
+            paused.discard(domain)
+            return "paused"
+        return None
+
+    monkeypatch.setattr(run_module, "_work_one_court", work)
+    monkeypatch.setattr(run_module, "cooldown_left", lambda domain: 0.0)
+    monkeypatch.setattr(run_module, "PARALLEL_COURTS", 1)
+    monkeypatch.setattr(
+        run_module, "harvested_courts", lambda: [_court("9ap.sudrf.ru"), _court("8ap.sudrf.ru")]
+    )
+    run_module.run_queue(settings=db_settings, max_hours=0.01)
+
+    assert order == ["9ap.sudrf.ru", "8ap.sudrf.ru", "9ap.sudrf.ru"]

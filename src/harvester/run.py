@@ -77,11 +77,17 @@ def _work_one_court(
     bulk: bool,
     limit: int | None,
     stop: threading.Event,
-) -> None:
+    *,
+    yield_on_pause: bool = False,
+) -> str | None:
+    """Обойти окна суда. `yield_on_pause` — суд на паузе не ждать, а вернуть
+    `"paused"`: поток возьмёт другой суд, этот вернётся в конец очереди."""
     done = 0
     while not stop.is_set() and (limit is None or done < limit):
+        if yield_on_pause and cooldown_left(domain) > 0:
+            return "paused"
         if not wait_out_cooldown(domain, stop):
-            return
+            return None
 
         task = task_queue.claim(engine, courts=[domain])
         if task is None:
@@ -202,7 +208,19 @@ def run_queue(
                 if not pending:
                     return
                 domain = pending.pop(0)
-            _work_one_court(engine, domain, totals, settings, bulk, limit_per_court, stop)
+            outcome = _work_one_court(
+                engine, domain, totals, settings, bulk, limit_per_court, stop, yield_on_pause=True
+            )
+            if outcome != "paused":
+                continue
+            # 18.10.2026: семь потоков из восьми полдня ждали судов на
+            # получасовой паузе, работал один. Суд на паузе уходит в конец
+            # очереди, поток берёт следующий; ждёт, только если на паузе все.
+            with guard:
+                pending.append(domain)
+                everyone_paused = all(cooldown_left(d) > 0 for d in pending)
+            if everyone_paused:
+                stop.wait(30)
 
     threads = [
         threading.Thread(target=worker, name=f"обход-{i}", daemon=True)

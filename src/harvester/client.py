@@ -44,7 +44,11 @@ def open_client(
     bulk: bool = True,
 ) -> CourtClient:
     settings = settings or default_settings
-    if not court.has_captcha:
+    # У судов субъектов решатель подключается всегда, а срабатывает только
+    # на воротах. Из 87 судов капча нашлась у двух десятков, и находилась
+    # по одному за ночь: каждый неотмеченный суд стоил сотни упавших окон.
+    # Лишнее у суда без капчи — один запрос формы на странице UNKNOWN.
+    if not (court.has_captcha or court.level == "subject"):
         return CourtClient(settings, bulk=bulk)
 
     solver = shared_solver()

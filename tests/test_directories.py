@@ -101,3 +101,13 @@ def test_regional_courts_are_listed_but_not_harvested_until_enabled(monkeypatch)
 
     monkeypatch.setattr(settings, "harvest_levels", ("cassation", "appeal", "subject"))
     assert regional in harvested_courts()
+
+
+def test_regional_courts_always_get_a_captcha_solver(monkeypatch) -> None:
+    """Капча у судов субъектов находилась по одному суду за ночь. Решатель
+    подключается к любому из них и срабатывает только на воротах."""
+    from harvester import client as client_module
+
+    monkeypatch.setattr(client_module, "shared_solver", lambda: object())
+    assert client_module.open_client(court("oblsud.kln.sudrf.ru")).captcha is not None
+    assert client_module.open_client(court("2kas.sudrf.ru")).captcha is None

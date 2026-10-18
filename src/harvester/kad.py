@@ -12,11 +12,18 @@
 3. **тексты** — PDF только у `wanted`, только с `TEXTS_FROM`.
 
 Доступ (решение владельца, `docs/ethics.md`): cookie проверки браузера
-получает Chromium с минимальной маскировкой; поиск, карточки и списки
+получает Chromium с маскировкой автоматизации; поиск, карточки и списки
 документов — обычным `CourtClient` с этими cookie; PDF — тем же браузером,
 потому что у каждого файла своя проверка, решаемая скриптом страницы.
 Cookie `wasm` живёт около 10 минут — сессия обновляет их сама.
-На 429 клиент отступает, на 451 после свежих cookie — прогон кончается.
+На 429 клиент отступает, на 451 после свежих cookie — один перезапуск
+браузера под новый отпечаток, и если это не помогло — прогон кончается.
+
+Маскировка (решение владельца 18.10.2026) по мотивам `cookie-fetcher`
+проекта court-case-monitor (zeotq, CC BY-NC 4.0 — см. THIRD_PARTY_NOTICES.md):
+флаги браузера, скрипт поверх страницы, подменяющий `navigator.webdriver`
+и рвущий разведочный WebSocket, подавление трекеров и человеческая
+последовательность «мышь → пауза → клик».
 """
 
 from __future__ import annotations
@@ -79,6 +86,47 @@ UA = (
     "Chrome/155.0.0.0 Safari/537.36"
 )
 MAX_RUN_HOURS = 6.0
+
+#: Трекеры: проверке не нужны, а свой след на сторонних доменах оставляют.
+#: Список — как у court-case-monitor: mail.ru, аналитика Google и Яндекса,
+#: vk.com, двойной клик.
+BLOCKED = (
+    "mail.ru",
+    "yandex",
+    "vk.com",
+    "google-analytics",
+    "googletagmanager",
+    "doubleclick.net",
+)
+
+#: Поверх страницы: скрыть признак автоматизации и разведочный WebSocket.
+#: `--disable-blink-features=AutomationControlled` снимает штатный признак,
+#: но не мешает проверке прочитать его другими способами; defineProperty
+#: перекрывает и их. WebSocket с адресом проверки («itsgonnafail») в
+#: court-case-monitor подменён заглушкой «соединение закрыто» — проверка
+#: считает отказ нормой и выдаёт cookie, настоящие сокеты идут как есть.
+_STEALTH = """
+(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => false });
+
+    const NativeWS = window.WebSocket;
+    function FakeWS(url, protocols) {
+        if (String(url).includes("itsgonnafail")) {
+            this.readyState = 3;
+            this.CONNECTING = 0;
+            this.OPEN = 1;
+            this.CLOSING = 2;
+            this.CLOSED = 3;
+            this.send = () => {};
+            this.close = () => {};
+            return;
+        }
+        return new NativeWS(url, protocols);
+    }
+    FakeWS.prototype = NativeWS.prototype;
+    window.WebSocket = FakeWS;
+})();
+"""
 
 #: Определения, чей текст нужен наравне с итоговыми актами.
 USEFUL = ("прекращении производства", "судебных расходов", "обеспечительн")
@@ -153,7 +201,7 @@ def _ms_date(value: str | None) -> datetime | None:
 
 
 class Blocked(RuntimeError):
-    """КАД отказал и со свежими cookie: прогон кончается, а не долбит."""
+    """КАД отказал после свежих cookie и перезапуска браузера: прогон кончается, а не долбит."""
 
 
 def _blocked(status: int, text: str) -> bool:
@@ -173,22 +221,8 @@ class KadSession:
             update={"min_delay_seconds": PAUSE_SECONDS, "global_min_delay_seconds": PAUSE_SECONDS}
         )
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.launch(
-            executable_path=CHROMIUM,
-            headless=True,
-            # Маскировка — решение владельца (docs/ethics.md): без снятия
-            # признака автоматизации вторая проверка КАД не проходит.
-            args=["--disable-blink-features=AutomationControlled", "--enable-unsafe-swiftshader"],
-        )
-        self._ctx = self._browser.new_context(
-            user_agent=UA,
-            locale="ru-RU",
-            timezone_id="Europe/Moscow",
-            viewport={"width": 1366, "height": 768},
-        )
-        self._pdf: bytes | None = None
-        self._ctx.route("**/Document/Pdf/**", self._capture_pdf)
-        self._page = self._ctx.new_page()
+        self._relaunched = False
+        self._launch()
         self.client = CourtClient(
             settings,
             client=httpx.Client(
@@ -208,6 +242,57 @@ class KadSession:
         self._refreshed = 0.0
         self.refresh()
 
+    def _launch(self) -> None:
+        """Поднять браузер с маскировкой.
+
+        Флаги и скрипты — по court-case-monitor (THIRD_PARTY_NOTICES.md):
+        их набор проходит вторую проверку КАД, честный headless — нет
+        (docs/kad.md). Версия User-Agent подобрана под установленный
+        Chromium: расходящиеся версия агента и движка — сам по себе
+        отпечаток, поэтому чужой Chrome/120 не берём.
+        """
+        self._browser = self._pw.chromium.launch(
+            executable_path=CHROMIUM,
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                # Программный WebGL — решение владельца (docs/ethics.md):
+                # без него проверка не проходит, рендеринг она не считает.
+                "--enable-unsafe-swiftshader",
+                "--enable-features=WebAssembly",
+                "--enable-webgl",
+                "--enable-accelerated-2d-canvas",
+                "--font-render-hinting=none",
+                "--no-first-run",
+                "--hide-scrollbars",
+                "--mute-audio",
+                "--window-size=1366,768",
+            ],
+        )
+        self._ctx = self._browser.new_context(
+            user_agent=UA,
+            locale="ru-RU",
+            timezone_id="Europe/Moscow",
+            viewport={"width": 1366, "height": 768},
+            extra_http_headers={"Wasm-Support": "true"},
+        )
+        self._ctx.add_init_script(_STEALTH)
+        # Трекеры — первым слоем, PDF перехват вторым: последний перехват
+        # в Playwright проверяется раньше, и вёрстка проверки доходит до
+        # своих доменов через continue_, а наши PDF — через fetch.
+        self._ctx.route("**/*", self._route)
+        self._pdf: bytes | None = None
+        self._ctx.route("**/Document/Pdf/**", self._capture_pdf)
+        self._page = self._ctx.new_page()
+
+    def _route(self, route) -> None:
+        """Трекеры оборвать, остальное пропустить как есть."""
+        url = route.request.url
+        if any(domain in url for domain in BLOCKED):
+            route.abort()
+        else:
+            route.continue_()
+
     def _capture_pdf(self, route) -> None:
         response = route.fetch()
         body = response.body()
@@ -225,19 +310,35 @@ class KadSession:
 
     def refresh(self) -> None:
         """Cookie проверки: главная, затем поиск — его кнопка запускает
-        вторую проверку (`wasm`). Номер дела любой, результат не нужен."""
+        вторую проверку (`wasm`). Номер дела любой, результат не нужен.
+
+        Перед заполнением формы — движение мыши и пауза на кадр отрисовки:
+        проверка смотрит не только на cookie, но и на то, как страницей
+        управляли; мгновенный клик сразу после загрузки — признак скрипта.
+        """
         self._count()
         self._page.goto(BASE + "/", wait_until="domcontentloaded", timeout=60000)
         self._page.wait_for_timeout(8000)
         # Окна уведомления может не быть.
         with contextlib.suppress(Exception):
             self._page.click(".js-promo_notification-popup-close", timeout=3000)
+        self._page.mouse.move(240, 180, steps=12)
+        self._page.evaluate(
+            """async () => {
+                await new Promise(requestAnimationFrame);
+                await new Promise(resolve => setTimeout(resolve, 250));
+            }"""
+        )
         self._page.fill("#sug-cases textarea, #sug-cases input", "СИП-1/2026")
-        self._page.click("#b-form-submit button")
-        for _ in range(40):
+        self._page.click("#b-form-submit button", delay=100)
+        # Ожидание с растущей задержкой: cookie приходят не мгновенно, а
+        # постоянный интервал опрашивает страницу ровнее человека.
+        delay = 500
+        for _ in range(20):
             if any(c["name"] == "wasm" for c in self._ctx.cookies(BASE)):
                 break
-            self._page.wait_for_timeout(500)
+            self._page.wait_for_timeout(delay)
+            delay = min(int(delay * 1.5), 3000)
         else:
             raise Blocked("КАД не выдал cookie проверки браузера")
         jar = self.client._client.cookies
@@ -247,6 +348,21 @@ class KadSession:
         self._refreshed = time.monotonic()
         log.info("КАД: cookie обновлены")
 
+    def _relaunch(self) -> None:
+        """Свежий браузер — новый отпечаток.
+
+        КАД, задержавший запрос со свежими cookie, мог запомнить не только
+        сессию, но и сам браузер. Один перезапуск за прогон дешевле, чем
+        конец прогона на первой же 451.
+        """
+        log.info("КАД: браузер перезапускается под новый отпечаток")
+        for close in (self._page.close, self._ctx.close, self._browser.close):
+            with contextlib.suppress(Exception):
+                close()
+        self._relaunched = True
+        self._launch()
+        self.refresh()
+
     def _send(self, call):
         if time.monotonic() - self._refreshed > COOKIE_TTL:
             self.refresh()
@@ -255,7 +371,11 @@ class KadSession:
             self.refresh()
             response = call()
             if _blocked(response.status_code, response.text):
-                raise Blocked(f"КАД: {response.status_code} и со свежими cookie")
+                if not self._relaunched:
+                    self._relaunch()
+                    response = call()
+                if _blocked(response.status_code, response.text):
+                    raise Blocked(f"КАД: {response.status_code} и со свежими cookie")
         return response
 
     def search(self, court: str, start: date, end: date, page: int = 1):

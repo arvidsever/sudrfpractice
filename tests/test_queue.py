@@ -226,3 +226,42 @@ def test_waiting_thread_still_obeys_the_stop_signal() -> None:
         assert wait_out_cooldown(domain, stop) is False
     finally:
         _COOLDOWNS.pop(domain, None)
+
+
+def test_interrupted_run_keeps_the_attempt(db_settings) -> None:
+    """Перезапуск прогона не должен списывать попытку у окон в работе:
+    иначе три перезапуска выводят их из очереди навсегда."""
+    engine = _seed(db_settings)
+    task_queue.claim(engine)
+    task_queue.release_stale(engine)
+
+    with engine.connect() as connection:
+        attempts = set(connection.execute(select(harvest_task.c.attempts)).scalars())
+    engine.dispose()
+    assert attempts == {0}
+
+
+def test_database_refusal_does_not_spend_the_attempt(monkeypatch, db_settings) -> None:
+    """16.10.2026: отказ базы в подключении списал все попытки у 5 700 окон."""
+    import threading
+
+    from sqlalchemy.exc import OperationalError
+
+    from harvester import run as run_module
+
+    engine = _seed(db_settings)
+    stop = threading.Event()
+
+    def refuse(*args, **kwargs):
+        stop.set()
+        raise OperationalError("SELECT 1", {}, Exception("remaining connection slots"))
+
+    monkeypatch.setattr(run_module, "harvest_listing", refuse)
+    run_module._work_one_court(
+        engine, "5kas.sudrf.ru", run_module.RunTotals(), db_settings, True, None, stop
+    )
+
+    with engine.connect() as connection:
+        rows = set(connection.execute(select(harvest_task.c.status, harvest_task.c.attempts)))
+    engine.dispose()
+    assert rows == {("pending", 0)}

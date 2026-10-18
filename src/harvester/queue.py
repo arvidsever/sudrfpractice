@@ -116,6 +116,11 @@ def release_stale(engine: Engine) -> int:
         result = connection.execute(
             update(harvest_task)
             .where(harvest_task.c.status == "running")
-            .values(status="pending", updated_at=func.now())
+            # Обрыв прогона — не вина окна: попытку, списанную `claim`, возвращаем.
+            .values(
+                status="pending",
+                attempts=func.greatest(harvest_task.c.attempts - 1, 0),
+                updated_at=func.now(),
+            )
         )
     return result.rowcount

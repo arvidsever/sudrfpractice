@@ -15,6 +15,7 @@ import threading
 from dataclasses import dataclass, field
 
 from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 
 from . import queue as task_queue
 from .config import Settings
@@ -135,6 +136,14 @@ def _work_one_court(
                 # `throttled` очередь снова выдаёт, так что круг был бы вечным.
                 log.info("%s: %s — поток уходит", domain, exc)
                 return
+            continue
+        except OperationalError as exc:
+            # База не дала подключения — окно не виновато. 16.10.2026 отказ
+            # «remaining connection slots are reserved» за минуту списал все
+            # три попытки у 5 700 окон, и они молча выпали из очереди.
+            task_queue.complete(engine, task, status="pending", refund=True)
+            log.warning("%s: база недоступна (%s) — окно возвращено", domain, exc.orig)
+            stop.wait(30)
             continue
         except Exception as exc:  # noqa: BLE001 — одно окно не должно ронять прогон
             log.exception(

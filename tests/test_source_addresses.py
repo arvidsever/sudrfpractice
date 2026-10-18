@@ -1,8 +1,8 @@
-"""Смена адреса выхода при блокировке — решение владельца, проверенное кодом.
+"""Чередование адреса выхода — решение владельца, проверенное кодом.
 
-Правило — в `docs/ethics.md`: заблокирован адрес — пробуем другой адрес
-сервера, заблокированы все — останавливаемся. Здесь проверяется, что именно
-это и делает клиент, а не что он делает вид.
+Правило — в `docs/ethics.md`: адреса сервера чередуются на каждый запрос,
+заблокированные перебираются, а когда заблокированы все — останавливаемся.
+Здесь проверяется, что именно это и делает клиент, а не что он делает вид.
 """
 
 from __future__ import annotations
@@ -48,6 +48,15 @@ def test_blocked_address_moves_to_the_next(monkeypatch) -> None:
     response = client.get("https://5kas.sudrf.ru/modules.php")
     assert response.status_code == 200
     assert seen == ["10.0.0.1", "10.0.0.2"], "на отказ адреса клиент обязан сменить адрес"
+
+
+def test_consecutive_requests_use_different_addresses(monkeypatch) -> None:
+    """Адреса идут по кругу: на каждый адрес — втрое меньше запросов,
+    а пауза между его запросами — втрое больше."""
+    client, seen = _client(monkeypatch, {address: 200 for address in ADDRESSES})
+    for _ in range(4):
+        assert client.get("https://5kas.sudrf.ru/modules.php").status_code == 200
+    assert seen == ["10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.1"], "круг адресов"
 
 
 def test_all_addresses_blocked_stops_the_run(monkeypatch) -> None:

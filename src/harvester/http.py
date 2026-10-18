@@ -154,11 +154,13 @@ def active_source(addresses: tuple[str, ...]) -> str | None:
 
 
 def rotate_source(addresses: tuple[str, ...]) -> bool:
-    """Перейти к следующему адресу выхода.
+    """Перейти к следующему адресу выхода по кругу.
 
     `False` — переходить некуда: адрес один или их нет. Решение владельца
-    18.10.2026 (`docs/ethics.md`): при блокировке адреса пробуем другой
-    адрес сервера, а когда заблокированы все — сбор останавливается.
+    18.10.2026 (`docs/ethics.md`): адреса чередуются на каждый запрос, а не
+    держатся до отказа, — тогда на каждый адрес приходится втрое меньше
+    запросов, а пауза между ними втрое больше; общий темп при этом не растёт.
+    Когда заблокированы все — сбор останавливается.
     """
     global _SOURCE_INDEX
     if len(addresses) < 2:
@@ -332,6 +334,9 @@ class CourtClient:
         #: подменить его нашим значило бы потерять и заголовки, и туннель
         #: (КС РФ ходит через обратный туннель с мака).
         self._rebuildable = client is None or client_factory is not None
+        #: Адрес, под который собран текущий клиент: по нему видно, пора ли
+        #: пересобирать клиент при переходе на следующий адрес круга.
+        self._client_source: str | None = active_source(self.settings.source_addresses)
         self._client = client if client is not None else self._build_client()
 
     def _build_client(self) -> httpx.Client:
@@ -354,20 +359,34 @@ class CourtClient:
             transport=httpx.HTTPTransport(local_address=source) if source else None,
         )
 
-    def _next_address(self) -> bool:
-        """Перейти на следующий адрес выхода и пересобрать клиент.
+    def _rotate(self) -> bool:
+        """Сменить адрес круга. `False` — менять нечего: адрес один или их нет.
 
-        Одна смена адреса — это один настоящий запрос с другого адреса,
-        а не повтор «не ответившему» серверу: `False` возвращается, когда
-        переходить некуда или клиент пересобрать нечем.
+        Клиент под новый адрес собирается лениво, в `_sync_client`, — на
+        первом запросе с этого адреса, а не в момент смены. Так круг
+        продвигается и на успешном запросе, не собирая клиент впустую.
         """
-        if not self._rebuildable or not rotate_source(self.settings.source_addresses):
+        if not self._rebuildable:
             return False
+        return rotate_source(self.settings.source_addresses)
+
+    def _sync_client(self) -> None:
+        """Собрать клиент под текущий адрес круга, если тот сменился.
+
+        Чередование адресов (`docs/ethics.md`) меняет адрес каждый запрос,
+        поэтому клиент пересобирается ровно на смене адреса. Чужой клиент без
+        фабрики не подменяется: у него свои заголовки и туннель (КС РФ).
+        """
+        if not self._rebuildable:
+            return
+        source = active_source(self.settings.source_addresses)
+        if source == self._client_source:
+            return
         with contextlib.suppress(Exception):
             self._client.close()
         self._client = self._build_client()
-        log.warning("адрес выхода: %s", active_source(self.settings.source_addresses))
-        return True
+        self._client_source = source
+        log.warning("адрес выхода: %s", source)
 
     def __enter__(self) -> CourtClient:
         return self
@@ -475,13 +494,15 @@ class CourtClient:
             )
 
         last_error: Exception | None = None
-        #: Смены адреса выхода. Это не повторы «не ответившему» серверу:
-        #: отказ пришёл адресу, и с другого адреса запрос делается заново.
+        #: Смены адреса выхода из-за отказа. Сами адреса и так чередуются
+        #: (круг в `_sync_client`), а это — перебор внутри одного запроса,
+        #: когда отказ пришёл адресу и с другого его можно сделать заново.
         #: Потолок — число адресов минус один: дальше перебирать нечего.
         rotations = 0
         max_rotations = max(0, len(self.settings.source_addresses) - 1)
         for attempt in range(1, self.settings.max_retries + max_rotations + 1):
             with host_lock(host):
+                self._sync_client()
                 self._throttle(host)
                 key = (host, _today())
                 self._requests_today[key] = self._requests_today.get(key, 0) + 1
@@ -490,6 +511,7 @@ class CourtClient:
                 except httpx.HTTPError as exc:
                     last_error = exc
                     log.warning("%s: попытка %d не удалась: %s", host, attempt, exc)
+                    self._rotate()
                     continue
 
                 log.info(
@@ -505,7 +527,7 @@ class CourtClient:
                     # Значит и пауза та же, что у страницы придержания.
                     # Но сперва пробуем другой адрес выхода: блокировка
                     # адресная, и с соседнего запрос может пройти.
-                    if rotations < max_rotations and self._next_address():
+                    if rotations < max_rotations and self._rotate():
                         rotations += 1
                         continue
                     self.back_off(host, _cooldown_after_429(response, self.settings), "HTTP 429")
@@ -513,14 +535,15 @@ class CourtClient:
                 if _blocked_page(response):
                     # «Доступ заблокирован» (КАД) — отказ адресу, а не суду:
                     # другой адрес выхода — прежде всего остального.
-                    if rotations < max_rotations and self._next_address():
+                    if rotations < max_rotations and self._rotate():
                         rotations += 1
                         continue
+                    self._rotate()
                     return Response(
                         url=url, status_code=response.status_code, content=response.content
                     )
                 if arm_back_off and _looks_throttled(response.content):
-                    if rotations < max_rotations and self._next_address():
+                    if rotations < max_rotations and self._rotate():
                         rotations += 1
                         continue
                     self.back_off(host, self.settings.cooldown_seconds, "суд придержал адрес")
@@ -528,7 +551,9 @@ class CourtClient:
                     last_error = httpx.HTTPStatusError(
                         f"{response.status_code}", request=response.request, response=response
                     )
+                    self._rotate()
                     continue
+                self._rotate()
                 return Response(url=url, status_code=response.status_code, content=response.content)
 
         raise RuntimeError(f"{url}: не удалось получить ответ") from last_error

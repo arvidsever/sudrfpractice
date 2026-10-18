@@ -43,14 +43,23 @@ BASE = "https://www.vsrf.ru/lk/practice"
 #: В сырье и в счётчиках запросов ВС живёт под этим именем.
 DOMAIN = "www.vsrf.ru"
 
-#: Виды судопроизводства без экономических споров.
+#: Виды судопроизводства. `ECONOMIC` — экономическая коллегия (СКЭС),
+#: 511 166 актов на 18.10.2026; ещё около 150 тысяч её актов сайт отдаёт
+#: под видом `ADMINISTRATIVE` (главы 24–25 АПК). Выдача берётся вся,
+#: тексты СКЭС — только с `ECONOMIC_TEXTS_FROM` (см. `fetch_texts`).
 CASE_TYPES = (
     "CIVIL",
     "CRIMINAL",
     "ADMINISTRATIVE",
     "ADMINISTRATIVE_INFRACTION",
     "DISCIPLINARY_DISPUTE",
+    "ECONOMIC",
 )
+
+#: С какой даты акта качать PDF СКЭС. Все 660 тысяч — порядка 200–400 ГБ
+#: в S3 и 10–16 ГБ текста в базе; пока 2025–2026, как и у судов субъектов.
+#: Реквизиты собираются за всё время.
+ECONOMIC_TEXTS_FROM = date(2025, 1, 1)
 
 #: Откуда начинать окна. Проверено 03.10.2026: раньше актов нет.
 START = date(2005, 1, 1)
@@ -151,14 +160,27 @@ def _link(node: Node, prefix: str) -> tuple[str, str] | None:
     return None
 
 
+def _kad_link(item: Node) -> tuple[str, str] | None:
+    """Ссылка в КАД у строки СКЭС: (номер арбитражного дела, текст ссылки).
+    Номер — из параметра `number` адреса: `…/Kad/Card?number=А40-1%2F2025`."""
+    from urllib.parse import parse_qs, urlsplit
+
+    for anchor in item.css("a[href]"):
+        href = anchor.attributes.get("href") or ""
+        if "kad.arbitr.ru" in href:
+            number = parse_qs(urlsplit(href).query).get("number", [None])[0]
+            if number:
+                return number.strip(), " ".join(anchor.text().split())
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class ActRow:
     pdf_id: int
     #: Экономическая коллегия: PDF в `/stor_pdf_ec/`, вместо карточки ВС —
-    #: ссылка в картотеку арбитражных судов. Владелец решил её не брать
-    #: (03.10.2026), но выдача «административных» дел наполовину из неё
-    #: и состоит — дела по главе 24 АПК. Такие строки считаются при сверке
-    #: со счётчиком сайта и не сохраняются.
+    #: ссылка в картотеку арбитражных судов. До 18.10.2026 такие строки
+    #: только считались при сверке; теперь сохраняются (миграция 0017).
+    #: Выдача «административных» дел на девять десятых из них и состоит.
     economic: bool
     number: str | None
     claim_id: str | None
@@ -168,6 +190,8 @@ class ActRow:
     subject: str | None
     collegium: str | None
     judge: str | None
+    #: Номер арбитражного дела из ссылки в КАД — только у СКЭС.
+    arbitr_number: str | None = None
 
 
 def parse_acts(content: str) -> list[ActRow]:
@@ -181,6 +205,7 @@ def parse_acts(content: str) -> list[ActRow]:
             # Акт без файла: искать нечего. Не ошибка — но и не строка корпуса.
             continue
         claim = _link(item, "/lk/practice/claims/")
+        kad = None if claim else _kad_link(item)
         segments = _segments(item)
         fields = _fields(segments)
         economic = economic or "экономическим спорам" in (fields.get("Судебная коллегия") or "")
@@ -188,8 +213,11 @@ def parse_acts(content: str) -> list[ActRow]:
             ActRow(
                 pdf_id=int(pdf[0]),
                 economic=economic,
-                number=claim[1] if claim else None,
+                # У СКЭС карточки ВС нет: номер производства ВС — текст
+                # ссылки в КАД, а номер арбитражного дела — в самой ссылке.
+                number=claim[1] if claim else (kad[1] if kad else None),
                 claim_id=claim[0] if claim else None,
+                arbitr_number=kad[0] if kad else None,
                 act_kind=pdf[1] or None,
                 act_date=next((d for d in map(_date, segments) if d), None),
                 instance=fields.get("Инстанция"),
@@ -301,8 +329,8 @@ def claims_url(case_type: str, start: date, end: date, page: int = 0) -> str:
     return url + (f"&page={page}" if page else "")
 
 
-def pdf_url(pdf_id: int) -> str:
-    return f"{BASE}/stor_pdf/{pdf_id}"
+def pdf_url(pdf_id: int, economic: bool = False) -> str:
+    return f"{BASE}/{'stor_pdf_ec' if economic else 'stor_pdf'}/{pdf_id}"
 
 
 def months(start: date, end: date):
@@ -334,7 +362,7 @@ def _store_acts(engine: Engine, case_type: str, rows: list[ActRow]) -> None:
     # вставка не может обновить одну строку дважды. ponytail: у такого акта
     # остаётся связь с одним производством из двух; отдельная таблица
     # связей — если объединённых дел окажется много.
-    rows = list({row.pdf_id: row for row in rows if not row.economic}.values())
+    rows = list({row.pdf_id: row for row in rows}.values())
     if not rows:
         return
     values = [
@@ -349,6 +377,8 @@ def _store_acts(engine: Engine, case_type: str, rows: list[ActRow]) -> None:
             "subject": r.subject,
             "collegium": r.collegium,
             "judge": r.judge,
+            "economic": r.economic,
+            "arbitr_number": r.arbitr_number,
         }
         for r in rows
     ]
@@ -362,6 +392,8 @@ def _store_acts(engine: Engine, case_type: str, rows: list[ActRow]) -> None:
         "subject",
         "collegium",
         "judge",
+        "economic",
+        "arbitr_number",
     )
     with engine.begin() as connection:
         connection.execute(
@@ -571,23 +603,22 @@ def fetch_texts(
     refused = 0  # подряд: сколько PDF сайт не отдал
     while True:
         with engine.connect() as connection:
-            pending = (
-                connection.execute(
-                    select(vsrf_act.c.pdf_id)
-                    .where(vsrf_act.c.text_fetched_at.is_(None))
-                    .order_by(vsrf_act.c.act_date.desc().nulls_last(), vsrf_act.c.pdf_id.desc())
-                    .limit(chunk)
+            pending = connection.execute(
+                select(vsrf_act.c.pdf_id, vsrf_act.c.economic)
+                .where(
+                    vsrf_act.c.text_fetched_at.is_(None),
+                    ~vsrf_act.c.economic | (vsrf_act.c.act_date >= ECONOMIC_TEXTS_FROM),
                 )
-                .scalars()
-                .all()
-            )
+                .order_by(vsrf_act.c.act_date.desc().nulls_last(), vsrf_act.c.pdf_id.desc())
+                .limit(chunk)
+            ).all()
         if not pending:
             return fetched
-        for pdf_id in pending:
+        for pdf_id, economic in pending:
             if until is not None and time.monotonic() > until:
                 return fetched
             try:
-                response = client.get(pdf_url(pdf_id))
+                response = client.get(pdf_url(pdf_id, economic))
             except RuntimeError as exc:
                 # Сайт упорно отвечает 5xx на один PDF. 05.10.2026 акт 2427584
                 # отдавал 500, стоял в очереди первым — и девять часов каждый

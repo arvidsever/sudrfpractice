@@ -114,7 +114,7 @@ def test_window_is_closed_only_when_it_matches_the_counter(db_settings, tmp_path
     sweep_listing("acts", _Client(honest), engine, store, **window)
     with engine.connect() as connection:
         closed = connection.execute(select(func.count()).select_from(vsrf_window)).scalar_one()
-    assert closed == 5, "все пять видов судопроизводства за сентябрь сошлись со счётчиком"
+    assert closed == 6, "все шесть видов судопроизводства за сентябрь сошлись со счётчиком"
     engine.dispose()
 
 
@@ -126,12 +126,10 @@ ECONOMIC_ROW = """
 """
 
 
-def test_economic_collegium_is_counted_but_not_kept(db_settings, tmp_path) -> None:
-    """Владелец решил экономическую коллегию не брать, а «административная»
-    выдача сайта наполовину из неё: дела по главе 24 АПК. Её строки обязаны
-    войти в сверку со счётчиком — иначе окно не закроется никогда, — но в базу
-    не попадают. 03.10.2026 выдача за сентябрь открылась страницей, где все
-    двадцать строк экономические, и сбор остановился на ней, не дойдя до наших."""
+def test_economic_collegium_is_kept_with_its_arbitration_number(db_settings, tmp_path) -> None:
+    """Акты СКЭС идут в выдаче «административных» дел вперемешку с нашими.
+    С 18.10.2026 они сохраняются: с пометкой, номером производства ВС и
+    номером арбитражного дела из ссылки в КАД, — и входят в сверку."""
     import json
 
     from sqlalchemy import create_engine, func, select
@@ -166,10 +164,16 @@ def test_economic_collegium_is_counted_but_not_kept(db_settings, tmp_path) -> No
     with engine.connect() as connection:
         kept = connection.execute(select(func.count()).select_from(vsrf_act)).scalar_one()
         closed = connection.execute(select(func.count()).select_from(vsrf_window)).scalar_one()
+        ec = connection.execute(select(vsrf_act).where(vsrf_act.c.economic)).one()
     engine.dispose()
 
-    assert kept == 2, "экономическая строка в базу не попадает"
-    assert closed == 5, "но в сверку входит: три строки на счётчик три — окно закрыто"
+    assert kept == 3
+    assert (ec.pdf_id, ec.number, ec.arbitr_number) == (2570944, "305-ЭС26-1", "А40-1/2025")
+    assert closed == 6, "три строки на счётчик три — окно закрыто"
+
+    from harvester.vsrf import pdf_url
+
+    assert pdf_url(2570944, economic=True).endswith("/stor_pdf_ec/2570944")
 
 
 def test_supreme_court_pages_are_utf8_and_gas_pages_cp1251() -> None:
@@ -331,7 +335,7 @@ def test_one_act_shared_by_two_productions_closes_the_window(db_settings, tmp_pa
         closed = connection.execute(select(func.count()).select_from(vsrf_window)).scalar_one()
     engine.dispose()
     assert kept == 1, "акт один"
-    assert closed == 5, "но строк две, и окно сошлось со счётчиком"
+    assert closed == 6, "но строк две, и окно сошлось со счётчиком"
 
 
 def test_empty_shell_after_the_last_page_ends_the_listing(db_settings, tmp_path) -> None:
@@ -373,7 +377,7 @@ def test_empty_shell_after_the_last_page_ends_the_listing(db_settings, tmp_path)
         closed = connection.execute(select(func.count()).select_from(vsrf_window)).scalar_one()
     engine.dispose()
     assert kept == 2
-    assert closed == 5, "две строки на счётчик два — окна закрыты, прогон не упал"
+    assert closed == 6, "две строки на счётчик два — окна закрыты, прогон не упал"
 
 
 def test_one_refused_pdf_does_not_block_the_queue(db_settings, tmp_path) -> None:
@@ -440,8 +444,61 @@ def test_one_unanswered_window_does_not_end_the_run(db_settings, tmp_path) -> No
     sweep_listing("acts", Flaky(honest, 1), engine, RawStore(tmp_path), **window)
     with engine.connect() as connection:
         closed = connection.execute(select(func.count()).select_from(vsrf_window)).scalar_one()
-    assert closed == 4, "одно окно из пяти осталось открытым, остальные собраны"
+    assert closed == 5, "одно окно из шести осталось открытым, остальные собраны"
 
     with pytest.raises(RuntimeError):
         sweep_listing("acts", Flaky(honest, 3), engine, RawStore(tmp_path), **window)
     engine.dispose()
+
+
+def test_economic_texts_wait_for_their_date(db_settings, tmp_path) -> None:
+    """PDF СКЭС качаются только с ECONOMIC_TEXTS_FROM: все 660 тысяч — сотни
+    гигабайт в S3. Реквизиты при этом есть у всех."""
+    import httpx
+    from sqlalchemy import create_engine, insert
+
+    from harvester.db.schema import vsrf_act
+    from harvester.raw import RawStore
+    from harvester.vsrf import fetch_texts
+
+    engine = create_engine(db_settings.database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            insert(vsrf_act),
+            [
+                {
+                    "pdf_id": 1,
+                    "case_type": "ECONOMIC",
+                    "economic": True,
+                    "act_date": date(2020, 1, 1),
+                },
+                {
+                    "pdf_id": 2,
+                    "case_type": "ECONOMIC",
+                    "economic": True,
+                    "act_date": date(2026, 9, 1),
+                },
+                {
+                    "pdf_id": 3,
+                    "case_type": "CIVIL",
+                    "economic": False,
+                    "act_date": date(2010, 1, 1),
+                },
+            ],
+        )
+    asked = []
+
+    class Client:
+        def get(self, url):
+            asked.append(url)
+            return httpx.Response(200, content=b"not a pdf", request=httpx.Request("GET", url))
+
+    import time
+
+    # Не-PDF не отмечается взятым, и очередь крутится до срока — даём секунду.
+    fetch_texts(Client(), engine, RawStore(tmp_path), until=time.monotonic() + 1, chunk=10)
+    engine.dispose()
+    assert sorted({u.rsplit("/", 2)[-2] + "/" + u.rsplit("/", 1)[-1] for u in asked}) == [
+        "stor_pdf/3",
+        "stor_pdf_ec/2",
+    ]

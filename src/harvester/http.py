@@ -358,6 +358,22 @@ class CourtClient:
     def get(
         self, url: str, *, arm_back_off: bool = True, ignore_cooldown: bool = False
     ) -> Response:
+        return self.request("GET", url, arm_back_off=arm_back_off, ignore_cooldown=ignore_cooldown)
+
+    def post(self, url: str, *, json: object, arm_back_off: bool = True) -> Response:
+        """POST с JSON — через тот же дроссель, паузу и потолок, что и GET.
+        Нужен картотеке арбитражных судов: поиск там — POST (docs/kad.md)."""
+        return self.request("POST", url, json=json, arm_back_off=arm_back_off)
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        json: object = None,
+        arm_back_off: bool = True,
+        ignore_cooldown: bool = False,
+    ) -> Response:
         """Запрос через дроссель.
 
         `ignore_cooldown=True` — постучаться в суд, который сейчас на паузе.
@@ -398,13 +414,15 @@ class CourtClient:
                 key = (host, _today())
                 self._requests_today[key] = self._requests_today.get(key, 0) + 1
                 try:
-                    response = self._client.get(url)
+                    response = self._client.request(method, url, json=json)
                 except httpx.HTTPError as exc:
                     last_error = exc
                     log.warning("%s: попытка %d не удалась: %s", host, attempt, exc)
                     continue
 
-                log.info("GET %s → %d (%d байт)", url, response.status_code, len(response.content))
+                log.info(
+                    "%s %s → %d (%d байт)", method, url, response.status_code, len(response.content)
+                )
                 if response.status_code == 429:
                     # Тот же антибрутфорс, что и «Информация временно
                     # недоступна», только на уровне HTTP: nginx отдаёт

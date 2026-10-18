@@ -501,15 +501,16 @@ def _higher_columns(spec: _Higher) -> list:
         spec.decided.label("decision_date"),
         spec.kind.label("kind"),
         spec.about.label("about"),
+        # У ВС акты СКЭС лежат по другому адресу (`/stor_pdf_ec/`).
+        *([spec.head.c.economic] if "economic" in spec.head.c else []),
     ]
 
 
 def _higher_row(domain: str, row) -> dict:
-    return {
-        **row._mapping,
-        "court_domain": domain,
-        "url": HIGHER[domain].url.format(row.pdf_id),
-    }
+    url = HIGHER[domain].url.format(row.pdf_id)
+    if row._mapping.get("economic"):
+        url = url.replace("/stor_pdf/", "/stor_pdf_ec/")
+    return {**row._mapping, "court_domain": domain, "url": url}
 
 
 def run_higher(engine: Engine, query: Query, domain: str) -> Found:

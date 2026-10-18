@@ -269,6 +269,9 @@ vsrf_act = Table(
     Column("subject", Text, nullable=True),
     Column("collegium", Text, nullable=True),
     Column("judge", Text, nullable=True),
+    #: Акт экономической коллегии: PDF в `/stor_pdf_ec/` (миграция 0017).
+    Column("economic", Boolean, nullable=False, server_default="false"),
+    Column("arbitr_number", Text, nullable=True, comment="номер арбитражного дела, А40-…/2025"),
     Column("first_seen", DateTime(timezone=True), nullable=False, server_default=func.now()),
     #: NULL — PDF ещё не брали. Очередь текстов — это и есть `IS NULL`.
     Column("text_fetched_at", DateTime(timezone=True), nullable=True),

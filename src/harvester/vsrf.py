@@ -522,7 +522,9 @@ def sweep_listing(
     collected_total = 0
     unanswered = 0  # подряд: окна, на которых сайт не ответил
 
-    for case_type in CASE_TYPES:
+    # Производства СКЭС — ссылки в КАД без УИД, их миллионы, и в базу они
+    # не идут: связь с арбитражными делами — по номеру из строки акта.
+    for case_type in (t for t in CASE_TYPES if source == "acts" or t != "ECONOMIC"):
         with engine.connect() as connection:
             done = set(
                 connection.execute(

@@ -16,8 +16,10 @@
 документов — обычным `CourtClient` с этими cookie; PDF — тем же браузером,
 потому что у каждого файла своя проверка, решаемая скриптом страницы.
 Cookie `wasm` живёт около 10 минут — сессия обновляет их сама.
-На 429 клиент отступает, на 451 после свежих cookie — один перезапуск
-браузера под новый отпечаток, и если это не помогло — прогон кончается.
+Отказ (429, 451, страница придержания) сперва пробует другой адрес выхода
+(`source_addresses`, решение владельца в `docs/ethics.md`); адреса
+кончились — отступление, а на 451 со свежими cookie ещё и один перезапуск
+браузера под новый отпечаток; не помогло — прогон кончается.
 
 Маскировка (решение владельца 18.10.2026) по мотивам `cookie-fetcher`
 проекта court-case-monitor (zeotq, CC BY-NC 4.0 — см. THIRD_PARTY_NOTICES.md):
@@ -223,22 +225,34 @@ class KadSession:
         self._pw = sync_playwright().start()
         self._relaunched = False
         self._launch()
-        self.client = CourtClient(
-            settings,
-            client=httpx.Client(
-                headers={
-                    "User-Agent": UA,
-                    "Accept": "*/*",
-                    "Accept-Language": "ru-RU,ru;q=0.9",
-                    "X-Requested-With": "XMLHttpRequest",
-                    "X-Date-Format": "iso",
-                    "Origin": BASE,
-                    "Referer": BASE + "/",
-                },
+        #: Cookie проверки держим сами: при блокировке адреса клиент
+        #: пересобирается под новый адрес выхода, а cookie это пережить
+        #: обязаны — на них держится весь доступ к КАД.
+        self._jar = httpx.Cookies()
+        headers = {
+            "User-Agent": UA,
+            "Accept": "*/*",
+            "Accept-Language": "ru-RU,ru;q=0.9",
+            "X-Requested-With": "XMLHttpRequest",
+            "X-Date-Format": "iso",
+            "Origin": BASE,
+            "Referer": BASE + "/",
+        }
+
+        def build(source: str | None) -> httpx.Client:
+            client = httpx.Client(
+                headers=headers,
                 timeout=settings.request_timeout_seconds,
                 follow_redirects=True,
-            ),
-        )
+                transport=httpx.HTTPTransport(local_address=source) if source else None,
+            )
+            for cookie in self._jar.jar:
+                client.cookies.set(
+                    cookie.name, cookie.value, domain=cookie.domain, path=cookie.path
+                )
+            return client
+
+        self.client = CourtClient(settings, client_factory=build)
         self._refreshed = 0.0
         self.refresh()
 
@@ -341,10 +355,9 @@ class KadSession:
             delay = min(int(delay * 1.5), 3000)
         else:
             raise Blocked("КАД не выдал cookie проверки браузера")
-        jar = self.client._client.cookies
-        jar.clear()
+        self._jar.clear()
         for c in self._ctx.cookies(BASE):
-            jar.set(c["name"], c["value"], domain=c["domain"], path=c["path"])
+            self._jar.set(c["name"], c["value"], domain=c["domain"], path=c["path"])
         self._refreshed = time.monotonic()
         log.info("КАД: cookie обновлены")
 

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import logging
 import os
@@ -138,6 +139,32 @@ def claim_harvest_lock(
 def cooldown_left(domain: str) -> float:
     """Сколько секунд ещё нельзя трогать этот суд."""
     return max(0.0, _COOLDOWNS.get(domain, 0.0) - time.monotonic())
+
+
+#: Какой адрес выхода сейчас в работе. Перебор общий на процесс, как и всё
+#: состояние по хостам: блокировка адреса — свойство машины, а не задачи.
+_SOURCE_INDEX = 0
+
+
+def active_source(addresses: tuple[str, ...]) -> str | None:
+    """Адрес, с которого уходит текущий запрос. Пусто — основной адрес."""
+    if not addresses:
+        return None
+    return addresses[_SOURCE_INDEX % len(addresses)]
+
+
+def rotate_source(addresses: tuple[str, ...]) -> bool:
+    """Перейти к следующему адресу выхода.
+
+    `False` — переходить некуда: адрес один или их нет. Решение владельца
+    18.10.2026 (`docs/ethics.md`): при блокировке адреса пробуем другой
+    адрес сервера, а когда заблокированы все — сбор останавливается.
+    """
+    global _SOURCE_INDEX
+    if len(addresses) < 2:
+        return False
+    _SOURCE_INDEX = (_SOURCE_INDEX + 1) % len(addresses)
+    return True
 
 
 #: Как часто стучаться в суд на паузе, если проба задана. Три минуты —
@@ -273,10 +300,16 @@ class CourtClient:
         bulk: bool = False,
         captcha: object | None = None,
         captcha_form_url: object | None = None,
+        client_factory: Callable[[str | None], httpx.Client] | None = None,
     ):
         """`bulk=True` — режим массового обхода: он и только он обязан идти
         в ночное окно. Единичный диагностический запрос под это правило
-        не подпадает, иначе проверить суд днём стало бы невозможно."""
+        не подпадает, иначе проверить суд днём стало бы невозможно.
+
+        `client_factory` — как собрать клиент под заданный адрес выхода.
+        Нужен там, где у клиента свои заголовки и jar (КАД): при блокировке
+        адреса клиент пересобирается, а не подменяется чужим.
+        """
         self.settings = settings or default_settings
         self.bulk = bulk
         #: Решатель капчи и способ узнать, где у суда лежит форма с ней.
@@ -294,7 +327,23 @@ class CourtClient:
         # без паузы: тысяча окон превратилась бы в тысячу таких стыков.
         self._last_request = _LAST_REQUEST
         self._requests_today = _REQUESTS_TODAY
-        self._client = client or httpx.Client(
+        self._client_factory = client_factory
+        #: Чужой клиент без способа его пересобрать — смены адреса не будет:
+        #: подменить его нашим значило бы потерять и заголовки, и туннель
+        #: (КС РФ ходит через обратный туннель с мака).
+        self._rebuildable = client is None or client_factory is not None
+        self._client = client if client is not None else self._build_client()
+
+    def _build_client(self) -> httpx.Client:
+        """Собрать клиент под текущий адрес выхода.
+
+        `local_address` и есть выбор адреса: сокет открывается с заданного
+        адреса машины, а не с основного. Пусто — поведение прежнее.
+        """
+        source = active_source(self.settings.source_addresses)
+        if self._client_factory is not None:
+            return self._client_factory(source)
+        return httpx.Client(
             headers={
                 "User-Agent": self.settings.user_agent,
                 "Accept": "text/html,application/xhtml+xml",
@@ -302,7 +351,23 @@ class CourtClient:
             },
             timeout=self.settings.request_timeout_seconds,
             follow_redirects=True,
+            transport=httpx.HTTPTransport(local_address=source) if source else None,
         )
+
+    def _next_address(self) -> bool:
+        """Перейти на следующий адрес выхода и пересобрать клиент.
+
+        Одна смена адреса — это один настоящий запрос с другого адреса,
+        а не повтор «не ответившему» серверу: `False` возвращается, когда
+        переходить некуда или клиент пересобрать нечем.
+        """
+        if not self._rebuildable or not rotate_source(self.settings.source_addresses):
+            return False
+        with contextlib.suppress(Exception):
+            self._client.close()
+        self._client = self._build_client()
+        log.warning("адрес выхода: %s", active_source(self.settings.source_addresses))
+        return True
 
     def __enter__(self) -> CourtClient:
         return self
@@ -410,7 +475,12 @@ class CourtClient:
             )
 
         last_error: Exception | None = None
-        for attempt in range(1, self.settings.max_retries + 1):
+        #: Смены адреса выхода. Это не повторы «не ответившему» серверу:
+        #: отказ пришёл адресу, и с другого адреса запрос делается заново.
+        #: Потолок — число адресов минус один: дальше перебирать нечего.
+        rotations = 0
+        max_rotations = max(0, len(self.settings.source_addresses) - 1)
+        for attempt in range(1, self.settings.max_retries + max_rotations + 1):
             with host_lock(host):
                 self._throttle(host)
                 key = (host, _today())
@@ -433,9 +503,26 @@ class CourtClient:
                     # в вёрстке, — и без этой ветки окно падало с `unknown`,
                     # а следующий запрос уходил через те же три секунды.
                     # Значит и пауза та же, что у страницы придержания.
+                    # Но сперва пробуем другой адрес выхода: блокировка
+                    # адресная, и с соседнего запрос может пройти.
+                    if rotations < max_rotations and self._next_address():
+                        rotations += 1
+                        continue
                     self.back_off(host, _cooldown_after_429(response, self.settings), "HTTP 429")
                     raise CourtOnCooldown(f"{host}: HTTP 429, отступаем")
+                if _blocked_page(response):
+                    # «Доступ заблокирован» (КАД) — отказ адресу, а не суду:
+                    # другой адрес выхода — прежде всего остального.
+                    if rotations < max_rotations and self._next_address():
+                        rotations += 1
+                        continue
+                    return Response(
+                        url=url, status_code=response.status_code, content=response.content
+                    )
                 if arm_back_off and _looks_throttled(response.content):
+                    if rotations < max_rotations and self._next_address():
+                        rotations += 1
+                        continue
                     self.back_off(host, self.settings.cooldown_seconds, "суд придержал адрес")
                 if response.status_code >= 500:
                     last_error = httpx.HTTPStatusError(
@@ -566,6 +653,15 @@ def host_lock(host: str) -> threading.Lock:
 
 
 _THROTTLE_MARKER = "Информация временно недоступна".encode("cp1251")
+
+#: Страница отказа КАД. Приходит и кодом 451, и кодом 429 с тем же текстом,
+#: и означает отказ адресу, а не суду.
+_BLOCKED_PAGE = "Доступ заблокирован".encode()
+
+
+def _blocked_page(response: httpx.Response) -> bool:
+    """КАД отказал адресу: 451 или та же страница «Доступ заблокирован»."""
+    return response.status_code == 451 or _BLOCKED_PAGE in response.content
 
 
 def _looks_throttled(content: bytes) -> bool:

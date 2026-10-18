@@ -150,6 +150,10 @@ def db_settings(tmp_path, test_database_url: str):
         case,
         harvest_run,
         harvest_task,
+        kad_case,
+        kad_doc,
+        kad_doc_text,
+        kad_window,
         ksrf_decision,
         ksrf_decision_text,
         norm_ref,
@@ -164,6 +168,10 @@ def db_settings(tmp_path, test_database_url: str):
     engine = create_engine(settings.database_url)
     with engine.begin() as connection:
         for table in (
+            kad_doc_text,
+            kad_doc,
+            kad_case,
+            kad_window,
             norm_ref,
             ksrf_decision_text,
             ksrf_decision,

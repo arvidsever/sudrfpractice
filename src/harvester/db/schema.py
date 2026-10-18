@@ -366,3 +366,58 @@ norm_ref = Table(
     Column("parser_version", SmallInteger, nullable=False),
     # GIN по norms — в миграции.
 )
+
+
+# --- КАД: СИП и арбитражные суды округов (миграция 0018, docs/kad.md) --------
+
+kad_case = Table(
+    "kad_case",
+    metadata,
+    Column("case_id", Text, primary_key=True, comment="идентификатор дела в КАД"),
+    Column("number", Text, nullable=False),
+    Column("court_tag", Text, nullable=False, comment="суд, по которому нашлось: SIP, FASMO…"),
+    Column("case_kind", Text, nullable=True, comment="civil | administrative | bankruptcy"),
+    Column("registration_date", Date, nullable=True),
+    Column("judge", Text, nullable=True),
+    #: NULL — документы не смотрели; дальше — перепроверка, пока дело идёт.
+    Column("docs_fetched_at", DateTime(timezone=True), nullable=True),
+    Column("first_seen", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+kad_doc = Table(
+    "kad_doc",
+    metadata,
+    Column("doc_id", Text, primary_key=True),
+    Column("case_id", Text, ForeignKey("kad_case.case_id", ondelete="CASCADE"), nullable=False),
+    Column("instance_id", Text, nullable=False),
+    Column("court_tag", Text, nullable=False),
+    Column("instance_level", Integer, nullable=True),
+    Column("type_name", Text, nullable=True, comment="Определение | Решения и постановления…"),
+    Column("content", Text, nullable=True, comment="суть акта по классификации КАД"),
+    Column("finish_instance", Boolean, nullable=False, server_default="false"),
+    Column("decision", Text, nullable=True),
+    Column("publish_date", DateTime(timezone=True), nullable=True),
+    Column("file_name", Text, nullable=True),
+    #: Качать ли текст: итоговые акты и полезные определения (`kad.wanted`).
+    Column("wanted", Boolean, nullable=False, server_default="false"),
+    Column("text_fetched_at", DateTime(timezone=True), nullable=True),
+)
+
+kad_doc_text = Table(
+    "kad_doc_text",
+    metadata,
+    Column("doc_id", Text, ForeignKey("kad_doc.doc_id", ondelete="CASCADE"), primary_key=True),
+    Column("raw_page_id", BigInteger, ForeignKey("raw_page.id"), nullable=True),
+    Column("plain_text", Text, nullable=False),
+    # tsv — generated-колонка в миграции.
+)
+
+kad_window = Table(
+    "kad_window",
+    metadata,
+    Column("court_tag", Text, primary_key=True),
+    Column("window_from", Date, primary_key=True),
+    Column("window_to", Date, nullable=False),
+    Column("total", Integer, nullable=False),
+    Column("done_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)

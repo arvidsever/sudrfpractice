@@ -134,6 +134,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     constitutional.add_argument("--max-hours", type=float, default=6.0)
 
+    arbitr = sub.add_parser("kad", help="КАД: поиск дел СИП и судов округов, акты, тексты")
+    arbitr.add_argument("--only", choices=["search", "docs", "texts"], help="один этап")
+    arbitr.add_argument("--max-hours", type=float, default=6.0)
+
     warn = sub.add_parser("alert", help="учесть исход задания и написать, если упало дважды")
     warn.add_argument("unit", nargs="?", help="имя задания systemd; исход — из SERVICE_RESULT")
     warn.add_argument("--test", action="store_true", help="отправить пробное письмо")
@@ -360,6 +364,29 @@ def main(argv: list[str] | None = None) -> int:
             max_hours=args.max_hours,
         )
         print(f"актов {result['acts']}, «дел» {result['claims']}, текстов {result['texts']}")
+        return 0
+
+    if args.command == "kad":
+        import logging
+
+        from .http import AlreadyHarvesting, claim_harvest_lock
+        from .kad import Blocked, sweep
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        try:
+            claim_harvest_lock(platform="kad")
+        except AlreadyHarvesting as exc:
+            print(exc)
+            return 75
+        try:
+            result = sweep(only=args.only, max_hours=args.max_hours)
+        except Blocked as exc:
+            # Отказ и со свежими cookie — не «не сейчас», а повод разобраться:
+            # падаем, и после второго раза придёт письмо.
+            print(exc)
+            return 1
+        print(f"дел {result['search']}, актов {result['docs']}, текстов {result['texts']}")
         return 0
 
     if args.command == "ksrf":

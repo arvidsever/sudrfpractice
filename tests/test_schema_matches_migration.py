@@ -20,6 +20,7 @@ GENERATED_ONLY = {
     "act_text": {"tsv"},
     "vsrf_act_text": {"tsv"},
     "ksrf_decision_text": {"tsv"},
+    "kad_doc_text": {"tsv"},
 }
 
 

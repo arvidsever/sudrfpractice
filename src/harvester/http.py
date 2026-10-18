@@ -66,6 +66,8 @@ def platform_of(host: str) -> str:
         return "vsrf"
     if host == "ksrf.ru" or host.endswith(".ksrf.ru"):
         return "ksrf"
+    if host == "kad.arbitr.ru":
+        return "kad"
     return host
 
 
@@ -250,7 +252,7 @@ class Response:
         # кодировку не объявляет. Решаем по платформе: 03.10.2026 выдача ВС,
         # прочитанная как cp1251, превратила номера в «РђРџР›26-18Р”», и ни одна
         # подпись поля не нашлась — у всех «дел» пропали УИД и даты.
-        if platform_of(httpx.URL(self.url).host) in ("vsrf", "ksrf"):
+        if platform_of(httpx.URL(self.url).host) in ("vsrf", "ksrf", "kad"):
             return self.content.decode("utf-8", errors="replace")
         return decode(self.content)
 

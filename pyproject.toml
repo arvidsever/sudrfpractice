@@ -34,6 +34,11 @@ api = [
     # Проверка подписи Apple у записи App Store для токенов приложения Sudrf.
     "cryptography>=43",
 ]
+# Сборщик КАД (docs/kad.md): браузер для cookie проверки и PDF.
+# Сам Chromium — системный пакет, Playwright его не качает.
+kad = [
+    "playwright>=1.49",
+]
 # MLX ставится только на Apple Silicon, поэтому эмбеддинги — отдельная группа.
 embeddings = [
     "mlx>=0.32",

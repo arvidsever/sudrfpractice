@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from pathlib import Path
 
 from sqlalchemy import create_engine, func, select
 
@@ -39,6 +40,16 @@ def test_search_row_keeps_case_but_not_sides() -> None:
     assert (row.case_id, row.number, row.case_kind) == (uid(1), "СИП-918/2026", "civil")
     assert row.registration_date == date(2026, 9, 30) and row.judge == "Иванова А. А."
     assert "Петров" not in repr(row), "стороны с ИНН не берём"
+
+
+def test_fragment_without_table_wrapper_is_parsed() -> None:
+    """КАД отдаёт содержимое таблицы без обёртки <table> — строки всё равно берём."""
+    html = (Path(__file__).parent / "fixtures" / "kad_search_fragment.html").read_text("utf-8")
+    assert "<table" not in html, "фикстура — именно фрагмент, а не полная страница"
+    rows, total = parse_search(html)
+    assert (total, len(rows)) == (3, 3)
+    assert rows[0].number == "А56-153/2023" and rows[0].judge == "Виноградова Л. В."
+    assert rows[0].registration_date == date(2023, 1, 3)
 
 
 def test_only_final_acts_and_useful_rulings_are_wanted() -> None:

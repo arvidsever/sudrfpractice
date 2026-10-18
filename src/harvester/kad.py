@@ -163,6 +163,11 @@ _CARD = re.compile(r"/Card/([0-9a-f-]{36})")
 
 def parse_search(html: str) -> tuple[list[CaseRow], int | None]:
     """Строки выдачи и счётчик «всего». Стороны не берём: ФИО с ИНН."""
+    # SearchInstances отдаёт содержимое таблицы без обёртки <table>; браузер
+    # вставляет его в готовый каркас. HTML-парсер такому фрагменту не доверяет
+    # и выбрасывает <tr>/<td>, поэтому строки не находятся — достраиваем обёртку.
+    if "<table" not in html:
+        html = f"<table>{html}</table>"
     tree = HTMLParser(html)
     total = tree.css_first("#documentsTotalCount")
     rows = []

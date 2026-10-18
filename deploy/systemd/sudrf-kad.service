@@ -1,0 +1,19 @@
+[Unit]
+Description=КАД: дела СИП и арбитражных судов округов
+Documentation=file:///srv/sudrfpractice/docs/kad.md
+
+[Service]
+Type=oneshot
+User=sudrf
+WorkingDirectory=/srv/sudrfpractice
+# Свой замок (kad.arbitr.ru) и своя пауза PAUSE_SECONDS: КАД — отдельная
+# платформа со своей браузерной проверкой cookie, идёт параллельно с прочим.
+# Срок прогона задаёт сам харвестер (--max-hours, по умолчанию 6): первый
+# сбор окон долог, дальше таймер лишь перепроверяет счётчики (RECOUNT_DAYS).
+ExecStart=/srv/sudrfpractice/.venv/bin/python -m harvester kad
+TimeoutStartSec=7h
+# 75 — «замок у другого обхода, не сейчас». Так бывает, пока идёт свод
+# карточек: КАД отступает и берёт замок следующим запуском.
+SuccessExitStatus=75
+ExecStopPost=-/srv/sudrfpractice/.venv/bin/python -m harvester alert %n
+StateDirectory=sudrf

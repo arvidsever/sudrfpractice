@@ -470,16 +470,47 @@ def _save_raw(engine: Engine, store: RawStore, url: str, content: bytes, kind: s
         return save_raw_page(connection, record)
 
 
+#: Паузы между повторами при сбое сети: КАД периодически отваливается на
+#: несколько минут, и без них один такой сбой роняет весь шестичасовой прогон.
+_TRANSIENT_BACKOFF = (30, 60, 120)
+
+
+def _search_with_retry(session, court, start, end, page=1):
+    """Поиск с повтором при сбое. `None` — не получилось, окно пропускаем."""
+    for attempt in range(1, len(_TRANSIENT_BACKOFF) + 2):
+        try:
+            return session.search(court, start, end, page)
+        except Exception as exc:  # noqa: BLE001 — сбой сети не должен ронять прогон
+            log.warning(
+                "%s %s—%s стр. %d: попытка %d не удалась: %s",
+                court,
+                start,
+                end,
+                page,
+                attempt,
+                exc,
+            )
+            if attempt <= len(_TRANSIENT_BACKOFF):
+                time.sleep(_TRANSIENT_BACKOFF[attempt - 1])
+    return None
+
+
 def _collect(session, engine, store, court, start, end) -> tuple[dict[str, CaseRow], int | None]:
     rows: dict[str, CaseRow] = {}
-    response = session.search(court, start, end)
+    response = _search_with_retry(session, court, start, end)
+    if response is None:
+        log.warning("%s %s—%s: выдача не получена, окно пропущено", court, start, end)
+        return {}, None
     found, total = parse_search(response.text)
     _save_raw(engine, store, response.url, response.content, "kad_search")
     if total is None or total > SEARCH_CAP:
         return {}, total
     rows.update({r.case_id: r for r in found})
     for page in range(2, -(-total // 25) + 1):
-        response = session.search(court, start, end, page)
+        response = _search_with_retry(session, court, start, end, page)
+        if response is None:
+            log.warning("%s %s—%s стр. %d: пропущена", court, start, end, page)
+            continue
         _save_raw(engine, store, response.url, response.content, "kad_search")
         rows.update({r.case_id: r for r in parse_search(response.text)[0]})
     return rows, total
@@ -770,6 +801,10 @@ def sweep(
         log.warning("КАД придержал: %s", exc)
     except DailyCapReached as exc:
         log.info("%s", exc)
+    except RuntimeError as exc:
+        # Разовый сбой соединения (таймаут/500) не должен ронять весь прогон:
+        # окно остаётся открытым и пересоберётся в следующий запуск.
+        log.warning("КАД: сбой соединения, прогон остановлен: %s", exc)
     finally:
         session.close()
         engine.dispose()

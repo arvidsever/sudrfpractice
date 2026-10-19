@@ -556,6 +556,8 @@ class CourtClient:
                 self._rotate()
                 return Response(url=url, status_code=response.status_code, content=response.content)
 
+        if last_error is not None:
+            self.back_off(host, self.settings.cooldown_seconds, "суд не отвечает")
         raise RuntimeError(f"{url}: не удалось получить ответ") from last_error
 
     def get_passing_captcha(

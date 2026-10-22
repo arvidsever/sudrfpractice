@@ -470,7 +470,7 @@ def test_economic_texts_wait_for_their_date(db_settings, tmp_path) -> None:
                     "pdf_id": 1,
                     "case_type": "ECONOMIC",
                     "economic": True,
-                    "act_date": date(2020, 1, 1),
+                    "act_date": date(2019, 12, 31),
                 },
                 {
                     "pdf_id": 2,

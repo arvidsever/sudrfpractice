@@ -562,3 +562,34 @@ def test_reparse_rewrites_rows_from_raw_without_the_site(db_settings, tmp_path) 
     engine.dispose()
     assert result["unread"] == 0 and result["pages"] > 0
     assert subject is None
+
+
+def test_network_failure_does_not_end_the_run_and_keeps_the_pdf(db_settings, tmp_path) -> None:
+    """22.10.2026: сайт ВС то и дело не принимал соединение, и каждый прогон
+    текстов падал на первом же сбое. Сбой сети — не вина файла: PDF не
+    метится и берётся снова."""
+    import httpx
+    from sqlalchemy import create_engine, insert, select
+
+    from harvester.db.schema import vsrf_act, vsrf_act_text
+    from harvester.raw import RawStore
+    from harvester.vsrf import fetch_texts
+
+    engine = create_engine(db_settings.database_url)
+    with engine.begin() as connection:
+        for pdf_id in (1, 2):
+            connection.execute(insert(vsrf_act).values(pdf_id=pdf_id, case_type="CIVIL"))
+    failed_once = set()
+
+    class Client:
+        def get(self, url):
+            request = httpx.Request("GET", url)
+            if url.endswith("/2") and url not in failed_once:
+                failed_once.add(url)
+                raise RuntimeError("не удалось получить ответ") from httpx.ConnectTimeout("")
+            return httpx.Response(200, content=b"%PDF-broken", request=request)
+
+    assert fetch_texts(Client(), engine, RawStore(tmp_path)) == 2
+    with engine.connect() as connection:
+        assert sorted(connection.execute(select(vsrf_act_text.c.pdf_id)).scalars()) == [1, 2]
+    engine.dispose()

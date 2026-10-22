@@ -682,8 +682,15 @@ def fetch_texts(
                 # и перепроходятся сбросом отметки. Пять отказов подряд —
                 # уже не битый файл, а лежащий сайт: тогда падаем, не метя.
                 refused += 1
-                if not isinstance(exc.__cause__, httpx.HTTPStatusError) or refused >= 5:
+                if refused >= 5:
                     raise
+                if not isinstance(exc.__cause__, httpx.HTTPStatusError):
+                    # Сеть, а не файл: 22.10.2026 сайт ВС то и дело не принимал
+                    # соединение (ConnectTimeout), и каждый прогон падал на первом
+                    # же сбое — за сутки 2 тысячи текстов вместо 20. Не метим:
+                    # PDF остаётся в очереди и будет взят снова.
+                    log.warning("%s: сайт не ответил (%s) — возьмём позже", pdf_id, exc.__cause__)
+                    continue
                 log.warning("%s: PDF не отдан (%s) — пропущен", pdf_id, exc.__cause__)
                 with engine.begin() as connection:
                     connection.execute(

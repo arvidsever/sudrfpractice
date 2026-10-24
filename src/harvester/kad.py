@@ -442,7 +442,7 @@ class KadSession:
 
         key = (HOST, _today())
         self.client._requests_today[key] = self.client._requests_today.get(key, 0) + 1
-        source = active_source(self.settings.source_addresses)
+        source = active_source(self.client.settings.source_addresses)
         headers = {
             "User-Agent": UA,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -454,7 +454,7 @@ class KadSession:
             headers=headers,
             cookies=self._jar,
             follow_redirects=True,
-            timeout=self.settings.request_timeout_seconds,
+            timeout=self.client.settings.request_timeout_seconds,
             transport=httpx.HTTPTransport(local_address=source) if source else None,
         )
         try:

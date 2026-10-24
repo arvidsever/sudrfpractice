@@ -199,9 +199,21 @@ def parse_search(html: str) -> tuple[list[CaseRow], int | None]:
 
 
 def _ms_date(value: str | None) -> datetime | None:
-    """`/Date(1791456237000)/` → момент времени."""
-    found = re.search(r"\d{10,}", value or "")
-    return datetime.fromtimestamp(int(found.group()) / 1000, tz=UTC) if found else None
+    """`/Date(1791456237000)/` или ISO `2026-10-06T12:42:52` → момент."""
+    if not value:
+        return None
+    # КАД отдаёт то миллисекунды в `/Date(...)/`, то ISO-строку —
+    # 24.10.2026 формат сменился на второй. Разбираем оба.
+    found = re.search(r"\d{10,}", value)
+    if found:
+        return datetime.fromtimestamp(int(found.group()) / 1000, tz=UTC)
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
+    except ValueError:
+        return None
 
 
 # --- доступ ----------------------------------------------------------------

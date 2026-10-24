@@ -9,6 +9,7 @@ from pathlib import Path
 from sqlalchemy import create_engine, func, select
 
 from harvester.kad import (
+    _ms_date,
     fetch_docs,
     parse_search,
     sweep_search,
@@ -50,6 +51,15 @@ def test_fragment_without_table_wrapper_is_parsed() -> None:
     assert (total, len(rows)) == (3, 3)
     assert rows[0].number == "А56-153/2023" and rows[0].judge == "Виноградова Л. В."
     assert rows[0].registration_date == date(2023, 1, 3)
+
+
+def test_ms_date_parses_both_formats() -> None:
+    iso = _ms_date("2026-10-06T12:42:52")
+    assert iso is not None and iso.year == 2026 and iso.month == 10
+    ms = _ms_date("/Date(1767225600000)/")
+    assert ms is not None and ms.tzinfo is not None
+    assert _ms_date(None) is None
+    assert _ms_date("garbage") is None
 
 
 def test_only_final_acts_and_useful_rulings_are_wanted() -> None:

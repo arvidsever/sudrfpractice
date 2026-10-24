@@ -413,6 +413,72 @@ class KadSession:
     def card(self, case_id: str):
         return self._send(lambda: self.client.get(f"{BASE}/Card/{case_id}"))
 
+    #: Соответствие заголовка инстанции её уровню в JSON карточки.
+    _LEVEL_BY_TITLE = {
+        "Первая инстанция": 1,
+        "Апелляционная инстанция": 2,
+        "Кассационная инстанция": 3,
+        "Надзорная инстанция": 4,
+        "По новым обстоятельствам": 5,
+    }
+
+    def card_instances(self, case_id: str) -> list[dict]:
+        """Идентификаторы инстанций и их суды — из HTML карточки.
+
+        JSON-эндпоинт `/Card/{id}` (XHR) теперь отдаёт `pravocaptcha`, поэтому
+        берём идентификаторы из разметки: контейнер
+        `b-chrono-item-header` с `data-court` и `data-id`, уровень — из
+        заголовка `<strong>`. Документы по-прежнему берутся через
+        `InstanceDocumentsPage` (он JSON отдаёт).
+        """
+        import re
+
+        import httpx
+
+        from .http import active_source
+
+        self.client._throttle(HOST)
+        from .http import _today
+
+        key = (HOST, _today())
+        self.client._requests_today[key] = self.client._requests_today.get(key, 0) + 1
+        source = active_source(self.settings.source_addresses)
+        headers = {
+            "User-Agent": UA,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "ru-RU,ru;q=0.9",
+            "Referer": BASE + "/",
+            "Origin": BASE,
+        }
+        client = httpx.Client(
+            headers=headers,
+            cookies=self._jar,
+            follow_redirects=True,
+            timeout=self.settings.request_timeout_seconds,
+            transport=httpx.HTTPTransport(local_address=source) if source else None,
+        )
+        try:
+            response = client.get(f"{BASE}/Card/{case_id}")
+        finally:
+            client.close()
+        self.client._rotate()
+        if response.status_code != 200:
+            raise RuntimeError(f"{HOST}: карточка {response.status_code}")
+        html = response.text
+        instances = []
+        for m in re.finditer(
+            r'<div class="b-chrono-item-header[^>]*data-court="([^"]*)"[^>]*data-id="([^"]*)"',
+            html,
+        ):
+            court = m.group(1)
+            iid = m.group(2)
+            chunk = html[m.end() : m.end() + 400]
+            sm = re.search(r"<strong>\s*(.*?)\s*</strong>", chunk, re.S)
+            level_text = sm.group(1).strip() if sm else ""
+            level = self._LEVEL_BY_TITLE.get(level_text, 1)
+            instances.append({"Id": iid, "InstanceLevel": level, "Court": {"Tag": court}})
+        return instances
+
     def docs(self, instance_id: str, case_id: str, page: int = 1):
         return self._send(
             lambda: self.client.get(
@@ -704,18 +770,16 @@ def fetch_docs(session, engine: Engine, *, until: float | None = None, chunk: in
             if until is not None and time.monotonic() > until:
                 return stored
             try:
-                info = json.loads(session.card(row.case_id).content)["Result"]["CaseInfo"]
-            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-                log.warning(
-                    "%s: карточка не JSON (%s) — вероятно капча, отступаем", row.case_id, exc
-                )
+                instances = session.card_instances(row.case_id)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("%s: карточка не получена (%s) — отступаем", row.case_id, exc)
                 from .http import CourtOnCooldown
 
                 session.client.back_off(
-                    HOST, session.client.settings.cooldown_seconds, "КАД показал капчу на карточке"
+                    HOST, session.client.settings.cooldown_seconds, "КАД не отдал карточку"
                 )
-                raise CourtOnCooldown(f"{HOST}: капча на карточке, отступаем") from exc
-            for instance in info.get("Instances") or []:
+                raise CourtOnCooldown(f"{HOST}: карточка недоступна, отступаем") from exc
+            for instance in instances:
                 court = (instance.get("Court") or {}).get("Tag")
                 if court not in COURTS:
                     continue

@@ -115,16 +115,10 @@ def test_documents_of_our_instances_only(db_settings) -> None:
             kad_case.insert().values(case_id=uid(1), number="А40-1/2025", court_tag="FASMO")
         )
 
-    card = {
-        "Result": {
-            "CaseInfo": {
-                "Instances": [
-                    {"Id": "first", "InstanceLevel": 1, "Court": {"Tag": "MSK"}},
-                    {"Id": "cass", "InstanceLevel": 3, "Court": {"Tag": "FASMO"}},
-                ]
-            }
-        }
-    }
+    instances = [
+        {"Id": "first", "InstanceLevel": 1, "Court": {"Tag": "MSK"}},
+        {"Id": "cass", "InstanceLevel": 3, "Court": {"Tag": "FASMO"}},
+    ]
     docs = {
         "Result": {
             "PagesCount": 1,
@@ -154,8 +148,8 @@ def test_documents_of_our_instances_only(db_settings) -> None:
     class Session:
         asked: list[str] = []
 
-        def card(self, case_id):
-            return _Response(json.dumps(card))
+        def card_instances(self, case_id):
+            return instances
 
         def docs(self, instance_id, case_id, page_number=1):
             self.asked.append(instance_id)
@@ -184,13 +178,7 @@ def test_documents_without_id_are_skipped(db_settings) -> None:
             kad_case.insert().values(case_id=uid(2), number="А40-2/2025", court_tag="FASMO")
         )
 
-    card = {
-        "Result": {
-            "CaseInfo": {
-                "Instances": [{"Id": "cass", "InstanceLevel": 3, "Court": {"Tag": "FASMO"}}]
-            }
-        }
-    }
+    instances = [{"Id": "cass", "InstanceLevel": 3, "Court": {"Tag": "FASMO"}}]
     docs = {
         "Result": {
             "PagesCount": 1,
@@ -223,8 +211,8 @@ def test_documents_without_id_are_skipped(db_settings) -> None:
     }
 
     class Session:
-        def card(self, case_id):
-            return _Response(json.dumps(card))
+        def card_instances(self, case_id):
+            return instances
 
         def docs(self, instance_id, case_id, page_number=1):
             return _Response(json.dumps(docs))

@@ -703,7 +703,18 @@ def fetch_docs(session, engine: Engine, *, until: float | None = None, chunk: in
         for row in pending:
             if until is not None and time.monotonic() > until:
                 return stored
-            info = json.loads(session.card(row.case_id).content)["Result"]["CaseInfo"]
+            try:
+                info = json.loads(session.card(row.case_id).content)["Result"]["CaseInfo"]
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                log.warning(
+                    "%s: карточка не JSON (%s) — вероятно капча, отступаем", row.case_id, exc
+                )
+                from .http import CourtOnCooldown
+
+                session.client.back_off(
+                    HOST, session.client.settings.cooldown_seconds, "КАД показал капчу на карточке"
+                )
+                raise CourtOnCooldown(f"{HOST}: капча на карточке, отступаем") from exc
             for instance in info.get("Instances") or []:
                 court = (instance.get("Court") or {}).get("Tag")
                 if court not in COURTS:

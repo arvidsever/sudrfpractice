@@ -621,13 +621,23 @@ def sweep_search(
 
 def _store_docs(engine: Engine, case_id: str, court: str, instance: dict, items: list[dict]) -> int:
     rows = []
+    seen: set[str] = set()
     for d in items:
         if not d.get("IsAct") or d.get("IsDeleted"):
             continue
+        #: Без идентификатора акт не сохраняется и не скачивается:
+        #: пустой `doc_id` повторялся бы в одном INSERT и ронял прогон
+        #: (ON CONFLICT DO UPDATE не умеет дважды трогать одну строку).
+        doc_id = d.get("Id")
+        if not doc_id:
+            continue
+        if doc_id in seen:
+            continue
+        seen.add(doc_id)
         content = "; ".join(d.get("ContentTypes") or []) or None
         rows.append(
             {
-                "doc_id": d["Id"],
+                "doc_id": doc_id,
                 "case_id": case_id,
                 "instance_id": instance["Id"],
                 "court_tag": court,

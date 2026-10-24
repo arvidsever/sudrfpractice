@@ -171,3 +171,67 @@ def test_documents_of_our_instances_only(db_settings) -> None:
     assert rows["d2"].wanted and rows["d2"].finish_instance and not rows["d1"].wanted
     assert rows["d2"].publish_date.year == 2026
     assert fetch_docs(session, engine) == 0, "документы взяты, а инстанция закончилась"
+
+
+def test_documents_without_id_are_skipped(db_settings) -> None:
+    """Акты без идентификатора (пустой `Id`) не ломают вставку
+    дублированием ключа и не попадают в базу."""
+    from harvester.db.schema import kad_case, kad_doc
+
+    engine = create_engine(db_settings.database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            kad_case.insert().values(case_id=uid(2), number="А40-2/2025", court_tag="FASMO")
+        )
+
+    card = {
+        "Result": {
+            "CaseInfo": {
+                "Instances": [{"Id": "cass", "InstanceLevel": 3, "Court": {"Tag": "FASMO"}}]
+            }
+        }
+    }
+    docs = {
+        "Result": {
+            "PagesCount": 1,
+            "Items": [
+                {
+                    "Id": "",
+                    "IsAct": True,
+                    "DocumentTypeName": "Определение",
+                    "ContentTypes": ["О принятии"],
+                    "FileName": None,
+                },
+                {
+                    "Id": "",
+                    "IsAct": True,
+                    "DocumentTypeName": "Определение",
+                    "ContentTypes": ["О назначении"],
+                    "FileName": None,
+                },
+                {
+                    "Id": "d1",
+                    "IsAct": True,
+                    "DocumentTypeName": "Решения и постановления",
+                    "ContentTypes": ["Постановление"],
+                    "FileName": "b.pdf",
+                    "PublishDate": "/Date(1770000000000)/",
+                    "FinishInstance": 1,
+                },
+            ],
+        }
+    }
+
+    class Session:
+        def card(self, case_id):
+            return _Response(json.dumps(card))
+
+        def docs(self, instance_id, case_id, page_number=1):
+            return _Response(json.dumps(docs))
+
+    session = Session()
+    assert fetch_docs(session, engine) == 1
+    with engine.connect() as connection:
+        rows = [r.doc_id for r in connection.execute(select(kad_doc))]
+    engine.dispose()
+    assert rows == ["d1"]

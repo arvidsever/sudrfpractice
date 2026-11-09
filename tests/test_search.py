@@ -227,6 +227,30 @@ def test_texts_share_is_reported_only_when_asked_about_texts(db_settings) -> Non
     engine.dispose()
 
 
+def test_regional_index_does_not_dilute_texts_share(db_settings) -> None:
+    """Областные суды собираются индексом, без текстов. 09.11.2026 их
+    миллион актов стоял в знаменателе, и выдача писала «разобрано 63 %»
+    при фактических 99,96 %."""
+    from harvester.db.schema import act
+    from harvester.directories import courts
+
+    engine = _seed(db_settings)
+    _seed_texts(engine)
+    regional = next(c.domain for c in courts() if c.level == "subject")
+    with engine.begin() as connection:
+        case_pk = connection.execute(
+            insert(case)
+            .values(
+                court_domain=regional, cartoteka_id="g2s", case_uid="obl-1", case_number="33-1/2026"
+            )
+            .returning(case.c.id)
+        ).scalar_one()
+        connection.execute(insert(act).values(case_pk=case_pk, text_number=1))
+
+    assert run(engine, Query(text="неустойка")).texts_share == 1.0
+    engine.dispose()
+
+
 def _seed_higher(engine):
     from harvester.db.schema import ksrf_decision, ksrf_decision_text, vsrf_act, vsrf_act_text
 

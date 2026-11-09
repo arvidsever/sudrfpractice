@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import date
+from time import monotonic
 
 from sqlalchemy import Engine, Select, Text, and_, cast, func, literal_column, select, text
 from sqlalchemy.dialects.postgresql import ARRAY, array
@@ -36,6 +37,7 @@ from .db.schema import (
     vsrf_act_text,
     vsrf_claim,
 )
+from .directories import courts
 
 #: Сколько дел отдавать за раз, если не сказано иначе.
 PAGE_SIZE = 25
@@ -386,6 +388,32 @@ def _count(connection, query: Query) -> tuple[int | None, bool]:
     return min(counted, query.count_cap), counted > query.count_cap
 
 
+#: Уровни судов, чьи тексты собираются. Индекс областных судов тексты
+#: не тянет: 09.11.2026 его миллион актов стоял в знаменателе, и выдача
+#: писала «тексты разобраны у 63 %» при фактических 99,96 %.
+TEXT_LEVELS = ("cassation", "appeal")
+
+#: Знаменатель считается 7 с (join `act` × `case` на 2,7 млн строк), а
+#: меняется за сутки на доли процента — держим час. Ключ — engine:
+#: у тестов база своя на каждый.
+_ACTS_TTL = 3600.0
+_acts_cache: dict[Engine, tuple[float, int]] = {}
+
+
+def _acts_of_text_courts(engine: Engine, connection) -> int:
+    hit = _acts_cache.get(engine)
+    if hit and monotonic() - hit[0] < _ACTS_TTL:
+        return hit[1]
+    domains = [c.domain for c in courts() if c.level in TEXT_LEVELS]
+    count = connection.execute(
+        select(func.count())
+        .select_from(act.join(case, case.c.id == act.c.case_pk))
+        .where(case.c.court_domain.in_(domains))
+    ).scalar_one()
+    _acts_cache[engine] = (monotonic(), count)
+    return count
+
+
 def run(engine: Engine, query: Query, *, with_facets: bool = False) -> Found:
     """Выполнить запрос. `with_facets` считает счётчики по каждому фасету."""
     with engine.connect() as connection:
@@ -396,9 +424,9 @@ def run(engine: Engine, query: Query, *, with_facets: bool = False) -> Found:
         # тексты, а не индекс.
         collected_share = texts_share = 0.0
         if query.text or query.norms:
-            acts = connection.execute(select(func.count()).select_from(act)).scalar_one()
+            acts = _acts_of_text_courts(engine, connection)
             texts = connection.execute(select(func.count()).select_from(act_text)).scalar_one()
-            texts_share = texts / acts if acts else 0.0
+            texts_share = min(texts / acts, 1.0) if acts else 0.0
         else:
             collected = connection.execute(select(func.count()).select_from(case)).scalar_one()
             collected_share = total / collected if collected else 0.0
